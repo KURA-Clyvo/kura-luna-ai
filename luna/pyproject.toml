@@ -7,6 +7,9 @@ name = "luna"
 version = "0.1.0"
 requires-python = ">=3.12"
 
+[project.scripts]
+luna = "src.cli.main:main"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
