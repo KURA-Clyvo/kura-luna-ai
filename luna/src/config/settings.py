@@ -1,4 +1,5 @@
 """Pydantic Settings — reads from .env file."""
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,3 +18,18 @@ class Settings(BaseSettings):
     BREED_CLASSIFIER_WEIGHTS_PATH: str
 
     LOG_LEVEL: str = "INFO"
+
+    # v2.0 — servidor HTTP e integração Kura .NET
+    KURA_API_BASE_URL: str
+    KURA_API_KEY: str
+    KURA_API_TIMEOUT: int = 10
+    WEBHOOK_PUBLIC_URL: str
+    LUNA_HTTP_PORT: int = 8000
+
+    @field_validator("KURA_API_BASE_URL")
+    @classmethod
+    def _validate_kura_url(cls, v: str) -> str:
+        """Rejeita URLs que não iniciam com http."""
+        if not v.startswith("http"):
+            raise ValueError("KURA_API_BASE_URL deve iniciar com 'http'")
+        return v
