@@ -8,6 +8,8 @@ from src.config.logging_config import setup_logging
 from src.config.settings import Settings
 from src.db.connection import OracleConnectionPool
 
+
+
 logger = logging.getLogger(__name__)
 
 app = typer.Typer(name="luna", help="Luna — IA proativa para clínicas veterinárias Kura.")
@@ -113,6 +115,22 @@ def detect(
     finally:
         if pool is not None:
             pool.close()
+
+
+@app.command("serve")
+def serve(
+    host: Annotated[str, typer.Option(help="Endereço de bind do servidor")] = "0.0.0.0",
+    port: Annotated[int, typer.Option(help="Porta HTTP")] = 0,
+    reload: Annotated[bool, typer.Option(help="Hot-reload (desenvolvimento)")] = False,
+) -> None:
+    """Inicia o servidor HTTP FastAPI da Luna v2.0."""
+    import uvicorn  # noqa: PLC0415 — lazy para não pesar run-job/detect
+    from src.web.app import create_app  # noqa: PLC0415
+
+    settings = Settings()
+    setup_logging(settings.LOG_LEVEL)
+    effective_port = port if port != 0 else settings.LUNA_HTTP_PORT
+    uvicorn.run(create_app(settings), host=host, port=effective_port, reload=reload)
 
 
 def main() -> None:

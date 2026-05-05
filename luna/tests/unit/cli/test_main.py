@@ -249,3 +249,58 @@ def test_detect_fecha_pool_mesmo_com_excecao(
         runner.invoke(app, ["detect", "foto.jpg"])
 
     mock_pool.close.assert_called_once()
+
+
+# ---- serve ---------------------------------------------------------------
+
+
+def test_serve_help_sem_erro() -> None:
+    result = runner.invoke(app, ["serve", "--help"])
+    assert result.exit_code == 0
+    assert "serve" in result.output.lower() or "host" in result.output.lower()
+
+
+def test_serve_chama_uvicorn_run_com_parametros_corretos() -> None:
+    with (
+        patch(f"{_MODULE}.Settings") as mock_settings_cls,
+        patch(f"{_MODULE}.setup_logging"),
+        patch("uvicorn.run") as mock_uvicorn_run,
+        patch("src.web.app.create_app") as mock_create_app,
+    ):
+        mock_settings = MagicMock()
+        mock_settings.LOG_LEVEL = "INFO"
+        mock_settings.LUNA_HTTP_PORT = 8000
+        mock_settings_cls.return_value = mock_settings
+        fake_app = MagicMock()
+        mock_create_app.return_value = fake_app
+
+        runner.invoke(app, ["serve", "--host", "127.0.0.1", "--port", "9000"])
+
+    mock_uvicorn_run.assert_called_once_with(fake_app, host="127.0.0.1", port=9000, reload=False)
+
+
+def test_serve_usa_porta_do_settings_quando_nao_informada() -> None:
+    with (
+        patch(f"{_MODULE}.Settings") as mock_settings_cls,
+        patch(f"{_MODULE}.setup_logging"),
+        patch("uvicorn.run") as mock_uvicorn_run,
+        patch("src.web.app.create_app") as mock_create_app,
+    ):
+        mock_settings = MagicMock()
+        mock_settings.LOG_LEVEL = "INFO"
+        mock_settings.LUNA_HTTP_PORT = 8080
+        mock_settings_cls.return_value = mock_settings
+        mock_create_app.return_value = MagicMock()
+
+        runner.invoke(app, ["serve"])
+
+    call_kwargs = mock_uvicorn_run.call_args
+    assert call_kwargs[1]["port"] == 8080 or call_kwargs[0][2] == 8080
+
+
+def test_help_lista_tres_comandos() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "run-job" in result.output
+    assert "detect" in result.output
+    assert "serve" in result.output
