@@ -144,20 +144,76 @@ luna/
 │   │   ├── connection.py        # Pool oracledb thin
 │   │   ├── models/              # Dataclasses frozen
 │   │   └── repositories/        # VacinaRepo, NotificacaoRepo, RacaRepo, LogErroRepo
-│   ├── messaging/      # TwilioGateway (Protocol + impl) + templates
-│   ├── ai/             # PetDetector (YOLO) + BreedClassifier (MobileNetV3) + Recommender
-│   ├── services/       # LembreteVacinaService + IdentificacaoRacaService
+│   ├── messaging/      # TwilioGateway (outbound) + twilio_inbound + templates
+│   ├── ai/             # PetDetector (YOLO) + BreedClassifier + TriageEngine (v2)
+│   ├── integration/    # IKuraClient + KuraClient (httpx) + DTOs + exceções (v2)
+│   ├── services/       # LembreteVacinaService + IdentificacaoRacaService + InboundMessageService (v2)
 │   ├── jobs/           # LembreteVacinaJob (APScheduler wrapper)
-│   └── cli/            # main.py — Composition Root + Typer
+│   ├── web/            # FastAPI app factory + dependencies + routers (v2)
+│   └── cli/            # main.py — Composition Root + Typer (run-job, detect, serve)
 ├── tests/
 │   ├── unit/           # Testes isolados por camada
-│   └── integration/    # E2E mockando só Oracle e Twilio
+│   └── integration/    # E2E mockando Oracle, Twilio e API .NET via respx
 ├── docs/
 │   ├── architecture.md  # Diagrama Mermaid detalhado
+│   ├── runbook.md       # Subir servidor, ngrok, configurar Twilio (v2)
+│   ├── api_contracts.md # Contratos REST esperados da API .NET (v2)
 │   └── demo_script.md   # Roteiro de 5 min para banca FIAP
 └── scripts/
     └── download_yolo_weights.py
 ```
+
+---
+
+## Modo servidor (v2.0)
+
+A partir da v2.0, a Luna inclui um servidor FastAPI bidirecional para receber mensagens WhatsApp.
+
+### Pré-requisitos adicionais
+
+| Requisito | Descrição |
+|---|---|
+| ngrok | Para expor o servidor localmente durante desenvolvimento |
+| API .NET Kura | URL e chave configuradas em `KURA_API_BASE_URL` e `KURA_API_KEY` |
+
+### Variáveis de ambiente adicionais
+
+| Variável | Descrição | Default |
+|---|---|---|
+| `KURA_API_BASE_URL` | URL base da API .NET | — (obrigatório) |
+| `KURA_API_KEY` | Bearer token Luna → .NET | — (obrigatório) |
+| `KURA_API_TIMEOUT` | Timeout HTTP (segundos) | `10` |
+| `WEBHOOK_PUBLIC_URL` | URL pública do webhook (validação Twilio) | — (obrigatório) |
+| `LUNA_HTTP_PORT` | Porta HTTP | `8000` |
+
+### Subindo o servidor
+
+```bash
+# Inicia o servidor FastAPI
+luna serve
+
+# Opções avançadas
+luna serve --host 0.0.0.0 --port 9000 --reload
+```
+
+### Fluxo inbound
+
+```
+Tutor WhatsApp → Twilio → POST /webhook/twilio/whatsapp
+                                    │
+                          Valida assinatura X-Twilio-Signature
+                          Retorna TwiML <Response/> em < 200ms
+                                    │ (BackgroundTask)
+                          InboundMessageService.processar()
+                            ├─ GET /api/tutores/telefone/{nr}  [.NET]
+                            ├─ POST /api/luna/interactions     [.NET]
+                            ├─ TriageEngine.classificar()      [local]
+                            ├─ POST /api/luna/triage           [.NET]
+                            └─ TwilioGateway.enviar_whatsapp() [outbound]
+```
+
+Guia completo: [`docs/runbook.md`](docs/runbook.md)
+Contratos REST com o .NET: [`docs/api_contracts.md`](docs/api_contracts.md)
 
 ---
 
@@ -167,9 +223,12 @@ luna/
 |--------|-----|
 | `oracledb` 2.4 | Oracle thin (sem Instant Client) |
 | `pydantic-settings` 2.4 | Configuração via `.env` |
-| `twilio` 9.3 | Envio WhatsApp Sandbox |
+| `twilio` 9.3 | Envio e validação assinatura WhatsApp |
 | `ultralytics` 8.3 | YOLOv8n — detecção dog/cat |
 | `torch` + `torchvision` 2.4 | MobileNetV3 — classificação de raça |
 | `opencv-python-headless` 4.10 | Anotação de bounding boxes |
 | `typer` 0.12 | CLI |
 | `APScheduler` 3.10 | Agendamento do job de vacinas |
+| `fastapi` 0.115 | Servidor webhook (v2.0) |
+| `uvicorn` 0.30 | ASGI server (v2.0) |
+| `httpx` 0.27 | Cliente HTTP async para API .NET (v2.0) |
