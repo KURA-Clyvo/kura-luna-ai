@@ -83,9 +83,7 @@ def run_job() -> None:
 
 
 @app.command("detect")
-def detect(
-    caminho: str = typer.Argument(..., help="Caminho para a imagem do pet"),
-) -> None:
+def detect(caminho: str) -> None:
     """Detecta a raça do pet na imagem e exibe recomendações clínicas."""
     pool: OracleConnectionPool | None = None
     try:
@@ -115,11 +113,7 @@ def detect(
 
 
 @app.command("serve")
-def serve(
-    host: str = typer.Option("0.0.0.0", help="Endereço de bind do servidor"),
-    port: int = typer.Option(8000, help="Porta HTTP"),
-    reload: bool = typer.Option(False, help="Hot-reload (desenvolvimento)"),
-) -> None:
+def serve(host: str = "0.0.0.0", port: int = 8000, reload: bool = False) -> None:
     """Inicia o servidor HTTP FastAPI da Luna v2.0."""
     import uvicorn  # noqa: PLC0415 — lazy para não pesar run-job/detect
     from src.web.app import create_app  # noqa: PLC0415
