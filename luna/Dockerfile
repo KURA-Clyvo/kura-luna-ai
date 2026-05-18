@@ -25,4 +25,4 @@ RUN pip install -e .
 EXPOSE 8000
 
 # Inicia o servidor HTTP da Luna v2.0
-CMD luna serve --host 0.0.0.0 --port 8000
+CMD uvicorn src.web.app:app --host 0.0.0.0 --port 8000

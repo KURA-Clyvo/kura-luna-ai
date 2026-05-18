@@ -99,3 +99,8 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(webhook_router.router)
 
     return app
+
+
+# Instância ASGI usada pelo uvicorn em produção (CMD do Dockerfile).
+# Testes continuam chamando create_app(settings) diretamente.
+app = create_app(Settings())
