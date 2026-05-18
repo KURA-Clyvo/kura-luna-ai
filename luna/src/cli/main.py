@@ -1,14 +1,11 @@
 """Composition root e CLI da Luna — comandos Typer."""
 import logging
-from typing import Annotated
 
 import typer
 
 from src.config.logging_config import setup_logging
 from src.config.settings import Settings
 from src.db.connection import OracleConnectionPool
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +84,7 @@ def run_job() -> None:
 
 @app.command("detect")
 def detect(
-    caminho: Annotated[str, typer.Argument(help="Caminho para a imagem do pet")],
+    caminho: str = typer.Argument(..., help="Caminho para a imagem do pet"),
 ) -> None:
     """Detecta a raça do pet na imagem e exibe recomendações clínicas."""
     pool: OracleConnectionPool | None = None
@@ -119,9 +116,9 @@ def detect(
 
 @app.command("serve")
 def serve(
-    host: Annotated[str, typer.Option(help="Endereço de bind do servidor")] = "0.0.0.0",
-    port: Annotated[int, typer.Option(help="Porta HTTP")] = 0,
-    reload: Annotated[bool, typer.Option(help="Hot-reload (desenvolvimento)")] = False,
+    host: str = typer.Option("0.0.0.0", help="Endereço de bind do servidor"),
+    port: int = typer.Option(8000, help="Porta HTTP"),
+    reload: bool = typer.Option(False, help="Hot-reload (desenvolvimento)"),
 ) -> None:
     """Inicia o servidor HTTP FastAPI da Luna v2.0."""
     import uvicorn  # noqa: PLC0415 — lazy para não pesar run-job/detect
@@ -129,8 +126,7 @@ def serve(
 
     settings = Settings()
     setup_logging(settings.LOG_LEVEL)
-    effective_port = port if port != 0 else settings.LUNA_HTTP_PORT
-    uvicorn.run(create_app(settings), host=host, port=effective_port, reload=reload)
+    uvicorn.run(create_app(settings), host=host, port=port, reload=reload)
 
 
 def main() -> None:
