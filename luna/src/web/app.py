@@ -15,6 +15,7 @@ from src.config.settings import Settings
 from src.integration.exceptions import KuraApiError, KuraTimeoutError
 from src.web.routers import health as health_router
 from src.web.routers import webhook_twilio as webhook_router
+from src.web.routers import whatsapp as whatsapp_router
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,7 @@ def create_app(settings: Settings) -> FastAPI:
     # ── routers ───────────────────────────────────────────────────────────────
     app.include_router(health_router.router)
     app.include_router(webhook_router.router)
+    app.include_router(whatsapp_router.router)
 
     return app
 

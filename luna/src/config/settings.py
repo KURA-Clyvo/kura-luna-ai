@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     KURA_API_TIMEOUT: int = 10
     WEBHOOK_PUBLIC_URL: str
     LUNA_HTTP_PORT: int = 8000
+    # Chave de API inbound — protege POST /whatsapp/enviar de chamadas não autorizadas.
+    # O mobile envia no header X-API-Key (EXPO_PUBLIC_LUNA_API_KEY).
+    LUNA_INBOUND_API_KEY: str = ""
 
     @field_validator("KURA_API_BASE_URL")
     @classmethod
