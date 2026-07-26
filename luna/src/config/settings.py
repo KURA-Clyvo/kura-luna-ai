@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Chave de API inbound — protege POST /whatsapp/enviar de chamadas não autorizadas.
     # O mobile envia no header X-API-Key (EXPO_PUBLIC_LUNA_API_KEY).
     LUNA_INBOUND_API_KEY: str = ""
+    # OpenAI Whisper — transcrição de áudio para draft SOAP (POST /transcricao).
+    # Nunca logar nem retornar em response. Custo ~$0.006/min de áudio.
+    OPENAI_API_KEY: str = ""
 
     @field_validator("KURA_API_BASE_URL")
     @classmethod

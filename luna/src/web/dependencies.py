@@ -12,6 +12,7 @@ from src.config.settings import Settings
 from src.db.repositories.log_erro_repo import LogErroRepository
 from src.integration.kura_client import KuraClient
 from src.messaging.twilio_client import TwilioGateway
+from src.services.transcricao_service import WhisperGateway
 
 if TYPE_CHECKING:
     from src.db.connection import OracleConnectionPool
@@ -61,6 +62,17 @@ def get_twilio_gateway(
         account_sid=settings.TWILIO_SID,
         auth_token=settings.TWILIO_TOKEN,
         from_number=settings.TWILIO_FROM_NUMBER,
+    )
+
+
+def get_whisper_gateway(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> WhisperGateway:
+    """Constrói WhisperGateway com a API key do Settings e o AsyncClient do lifespan."""
+    return WhisperGateway(
+        api_key=settings.OPENAI_API_KEY,
+        http_client=get_http_client(request),
     )
 
 
