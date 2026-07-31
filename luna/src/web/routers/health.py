@@ -1,9 +1,12 @@
 """Rotas de liveness e readiness da Luna."""
-from fastapi import APIRouter, Request
+import asyncio
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from src.integration.kura_client import IKuraClient
-from src.web.dependencies import get_kura_client, get_settings
+from src.web.dependencies import get_kura_client
 from src.web.schemas import HealthResponse, ReadyResponse
 
 router = APIRouter(tags=["health"])
@@ -16,13 +19,18 @@ async def health() -> HealthResponse:
 
 
 @router.get("/ready")
-async def ready(request: Request) -> JSONResponse:
+async def ready(
+    request: Request,
+    kura: Annotated[IKuraClient, Depends(get_kura_client)],
+) -> JSONResponse:
     """Readiness probe — verifica Oracle e API Kura. Retorna 503 se algum falhar."""
-    settings = get_settings()
-    kura: IKuraClient = get_kura_client(request, settings)
-
     kura_ok = await kura.verificar_saude()
-    oracle_ok = getattr(request.app.state, "pool", None) is not None
+
+    pool = getattr(request.app.state, "pool", None)
+    # pool não-None só confirma que o objeto foi construído — oracledb (thin
+    # mode) não valida conectividade na criação. ping() adquire uma conexão
+    # de verdade; roda em thread pois é uma chamada síncrona/bloqueante.
+    oracle_ok = await asyncio.to_thread(pool.ping) if pool is not None else False
 
     payload = ReadyResponse(
         status="ok" if (kura_ok and oracle_ok) else "degraded",

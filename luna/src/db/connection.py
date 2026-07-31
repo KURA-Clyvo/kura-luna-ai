@@ -30,3 +30,17 @@ class OracleConnectionPool:
     def close(self) -> None:
         """Close all connections in the pool."""
         self._pool.close()
+
+    def ping(self) -> bool:
+        """Acquires a connection and pings it — real connectivity check.
+
+        oracledb (thin mode) does not validate connectivity when the pool is
+        created, so a successfully-constructed pool does not mean Oracle is
+        reachable. Used by the /ready endpoint; never raises.
+        """
+        try:
+            with self.get_connection() as conn:
+                conn.ping()
+            return True
+        except Exception:
+            return False
