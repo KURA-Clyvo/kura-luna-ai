@@ -16,6 +16,11 @@ torchvision==0.19.1
 
 # === CLI / Job ===
 typer==0.12.5
+# Pinado abaixo de 8.2 — Click 8.2.0 removeu CliRunner(mix_stderr=...), usado em
+# tests/unit/cli/test_main.py. typer==0.12.5 só exige click>=8.0.0, então um
+# install limpo (ex.: CI) resolve o click mais novo disponível e quebra a coleta
+# dos testes de CLI.
+click==8.1.8
 APScheduler==3.10.4
 
 # === Web / HTTP (v2.0) ===
