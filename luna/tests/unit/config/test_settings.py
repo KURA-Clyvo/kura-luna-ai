@@ -31,7 +31,11 @@ def _make_settings(monkeypatch: pytest.MonkeyPatch, overrides: dict | None = Non
     return Settings(_env_file=None)  # type: ignore[call-arg]
 
 
-def test_settings_missing_required_fields() -> None:
+def test_settings_missing_required_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Garante ambiente limpo — sem isso, env vars ambientais (ex.: as fake do
+    # CI, necessárias para o import de src/web/app.py) mascarariam o teste.
+    for key in _REQUIRED:
+        monkeypatch.delenv(key, raising=False)
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # type: ignore[call-arg]
 
@@ -39,6 +43,7 @@ def test_settings_missing_required_fields() -> None:
 def test_settings_missing_kura_api_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
     env = dict(_REQUIRED)
     env.pop("KURA_API_BASE_URL")
+    monkeypatch.delenv("KURA_API_BASE_URL", raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
     with pytest.raises(ValidationError):

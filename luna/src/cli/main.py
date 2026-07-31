@@ -1,5 +1,6 @@
 """Composition root e CLI da Luna — comandos Typer."""
 import logging
+from typing import Optional
 
 import typer
 
@@ -113,14 +114,15 @@ def detect(caminho: str) -> None:
 
 
 @app.command("serve")
-def serve(host: str = "0.0.0.0", port: int = 8000, reload: bool = False) -> None:
+def serve(host: str = "0.0.0.0", port: Optional[int] = None, reload: bool = False) -> None:
     """Inicia o servidor HTTP FastAPI da Luna v2.0."""
     import uvicorn  # noqa: PLC0415 — lazy para não pesar run-job/detect
     from src.web.app import create_app  # noqa: PLC0415
 
     settings = Settings()
     setup_logging(settings.LOG_LEVEL)
-    uvicorn.run(create_app(settings), host=host, port=port, reload=reload)
+    porta = port if port is not None else settings.LUNA_HTTP_PORT
+    uvicorn.run(create_app(settings), host=host, port=porta, reload=reload)
 
 
 def main() -> None:
