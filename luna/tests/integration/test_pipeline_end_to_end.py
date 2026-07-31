@@ -94,7 +94,7 @@ def e2e(mock_oracle_pool: MagicMock, mock_cursor: MagicMock, mock_twilio_client:
     with patch("oracledb.create_pool", return_value=mock_oracle_pool):
         pool = OracleConnectionPool(dsn="fake_dsn", user="fake_user", password="fake_pwd")
 
-    with patch("twilio.rest.Client", return_value=mock_twilio_client):
+    with patch("src.messaging.twilio_client.Client", return_value=mock_twilio_client):
         gateway = TwilioGateway(
             account_sid="ACtest123",
             auth_token="authtoken",
