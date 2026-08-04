@@ -1,11 +1,12 @@
 """Providers de dependência para injeção via FastAPI Depends."""
 from __future__ import annotations
 
+import secrets
 from functools import lru_cache
 from typing import Annotated, TYPE_CHECKING
 
 import httpx
-from fastapi import Depends, Request
+from fastapi import Depends, Header, HTTPException, Request, status
 
 from src.ai.triage_engine import TriageEngine
 from src.config.settings import Settings
@@ -23,6 +24,25 @@ if TYPE_CHECKING:
 def get_settings() -> Settings:
     """Singleton de Settings lido do .env."""
     return Settings()
+
+
+def validar_api_key(
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """Dependência de autenticação: compara header X-API-Key com LUNA_INBOUND_API_KEY.
+
+    Centraliza a validação usada pelos endpoints inbound (`/whatsapp/enviar`,
+    `/transcricao`). Não se aplica ao webhook do Twilio, que usa validação de
+    assinatura própria (ver `web/routers/webhook_twilio.py`).
+
+    Raises:
+        HTTPException 401: se o header estiver ausente ou o valor for diferente
+            de LUNA_INBOUND_API_KEY.
+    """
+    chave_esperada = settings.LUNA_INBOUND_API_KEY
+    if not chave_esperada or not x_api_key or not secrets.compare_digest(x_api_key, chave_esperada):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key inválida")
 
 
 @lru_cache(maxsize=1)

@@ -9,12 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from src.config.settings import Settings
 from src.messaging.twilio_client import ITwilioGateway, MessagingError
-from src.web.dependencies import get_settings, get_twilio_gateway
+from src.web.dependencies import get_twilio_gateway, validar_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +30,6 @@ class WhatsAppEnvioResponse(BaseModel):
     sid: str
 
 
-def _verificar_api_key(
-    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
-    settings: Settings = Depends(get_settings),
-) -> None:
-    """Dependência de autenticação: compara header X-API-Key com LUNA_INBOUND_API_KEY."""
-    chave_esperada = settings.LUNA_INBOUND_API_KEY
-    if not chave_esperada or x_api_key != chave_esperada:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key inválida")
-
-
 @router.post(
     "/whatsapp/enviar",
     response_model=WhatsAppEnvioResponse,
@@ -53,7 +42,7 @@ def _verificar_api_key(
 )
 def enviar_whatsapp(
     req: WhatsAppEnvioRequest,
-    _: Annotated[None, Depends(_verificar_api_key)],
+    _: Annotated[None, Depends(validar_api_key)],
     twilio: Annotated[ITwilioGateway, Depends(get_twilio_gateway)],
 ) -> WhatsAppEnvioResponse:
     # LGPD: logar apenas tipo de operação e metadados — nunca o conteúdo
