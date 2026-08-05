@@ -70,7 +70,10 @@ class InboundMessageService:
                 self._log,
                 nm_procedure="InboundMessageService.processar",
                 exc=exc,
-                parametros=msg.numero_origem,
+                # LGPD: nunca logar o telefone do tutor. O SID do Twilio é um
+                # identificador não-PII já usado para correlação com o
+                # console do Twilio (ver src/web/routers/whatsapp.py).
+                parametros=f"message_sid={msg.message_sid}",
             )
             return await self._enviar_fallback(msg.numero_origem)
 

@@ -145,6 +145,32 @@ async def test_timeout_em_busca_envia_fallback(
     log_repo.registrar.assert_called()
 
 
+# ── LGPD — telefone nunca chega ao LOG_ERRO ───────────────────────────────────
+
+async def test_excecao_generica_nao_grava_telefone_em_log_erro(
+    service: InboundMessageService,
+    kura_client: AsyncMock,
+    log_repo: MagicMock,
+) -> None:
+    """TASK-35: parametros=msg.numero_origem violava LGPD (telefone cru em
+    LOG_ERRO.DS_PARAMETROS). Confirma que o telefone completo nunca é
+    passado ao LogErroRepository — inspeciona os argumentos da chamada
+    mockada, não apenas o texto de log."""
+    numero = "5511988887777"
+    kura_client.buscar_tutor_por_telefone.side_effect = RuntimeError("crash")
+
+    with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+        await service.processar(_make_msg(numero=numero))
+
+    log_repo.registrar.assert_called_once()
+    _, kwargs = log_repo.registrar.call_args
+    parametros = kwargs.get("parametros")
+
+    assert parametros is not None
+    assert numero not in parametros
+    assert parametros == "message_sid=SMtest"
+
+
 async def test_falha_em_registrar_triagem_nao_impede_resposta(
     service: InboundMessageService,
     kura_client: AsyncMock,
