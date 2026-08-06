@@ -1,14 +1,15 @@
 """Tests for InboundMessageService."""
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.messaging.twilio_inbound import InboundMessage
 from src.services.inbound_message_service import (
-    InboundMessageService,
     _RESPOSTA_ALTA,
     _RESPOSTA_FALLBACK,
     _RESPOSTA_MEDIA,
+    InboundMessageService,
 )
 
 
@@ -221,3 +222,36 @@ async def test_fallback_twilio_falha_nao_propaga(
         result = await service.processar(_make_msg())
 
     assert result.resposta_enviada == _RESPOSTA_FALLBACK
+
+
+async def test_fallback_twilio_falha_nao_loga_telefone_cru(
+    service: InboundMessageService,
+    kura_client: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """TASK-46: `_enviar_fallback` logava o telefone cru via logger.error do
+    log padrão da aplicação (destino diferente do LOG_ERRO/Oracle já corrigido
+    na TASK-35, mesmo problema de LGPD). Confirma que o número não aparece em
+    nenhum registro de log emitido durante o fluxo de fallback."""
+    numero = "5511988887777"
+    kura_client.buscar_tutor_por_telefone.side_effect = RuntimeError("crash")
+
+    async def twilio_erro(*_a, **_kw) -> None:
+        raise OSError("Twilio offline")
+
+    with (
+        caplog.at_level(logging.ERROR),
+        patch(
+            "src.services.inbound_message_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=twilio_erro),
+        ),
+    ):
+        result = await service.processar(_make_msg(numero=numero))
+
+    assert result.resposta_enviada == _RESPOSTA_FALLBACK
+    assert all(numero not in record.getMessage() for record in caplog.records)
+    fallback_records = [
+        record for record in caplog.records if "Falha ao enviar fallback" in record.getMessage()
+    ]
+    assert fallback_records, "esperava um log de falha ao enviar fallback"
+    assert "message_sid=SMtest" in fallback_records[0].getMessage()

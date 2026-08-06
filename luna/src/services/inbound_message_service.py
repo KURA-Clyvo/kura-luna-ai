@@ -75,7 +75,7 @@ class InboundMessageService:
                 # console do Twilio (ver src/web/routers/whatsapp.py).
                 parametros=f"message_sid={msg.message_sid}",
             )
-            return await self._enviar_fallback(msg.numero_origem)
+            return await self._enviar_fallback(msg)
 
     async def _processar_interno(self, msg: InboundMessage) -> ProcessamentoResult:
         tutor = await self._kura.buscar_tutor_por_telefone(msg.numero_origem)
@@ -126,14 +126,17 @@ class InboundMessageService:
             resposta_enviada=resposta,
         )
 
-    async def _enviar_fallback(self, numero: str) -> ProcessamentoResult:
+    async def _enviar_fallback(self, msg: InboundMessage) -> ProcessamentoResult:
         """Envia resposta genérica ao tutor em caso de erro não recuperável."""
         try:
             await asyncio.to_thread(
-                self._twilio.enviar_whatsapp, numero, _RESPOSTA_FALLBACK
+                self._twilio.enviar_whatsapp, msg.numero_origem, _RESPOSTA_FALLBACK
             )
         except Exception as exc:
-            logger.error("Falha ao enviar fallback para %s: %s", numero, exc)
+            # LGPD: nunca logar o telefone do tutor. O SID do Twilio é um
+            # identificador não-PII já usado para correlação com o console
+            # do Twilio (mesmo tratamento da TASK-35 em LOG_ERRO).
+            logger.error("Falha ao enviar fallback message_sid=%s: %s", msg.message_sid, exc)
         return ProcessamentoResult(
             id_interacao=None,
             urgencia=None,
