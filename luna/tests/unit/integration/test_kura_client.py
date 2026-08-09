@@ -1,5 +1,6 @@
 """Tests for KuraClient using respx to mock httpx."""
 import logging
+import traceback
 from datetime import datetime, timezone
 
 import httpx
@@ -241,6 +242,88 @@ async def test_httpx_nao_vaza_telefone_no_log_nativo(client: KuraClient) -> None
         assert "GET" in mensagem
         assert "200" in mensagem
         assert "/tutores/telefone/{redacted}" in mensagem
+
+
+@respx.mock
+async def test_buscar_tutor_401_levanta_kura_api_error_sanitizado(client: KuraClient) -> None:
+    """TASK-72 fix round 1 — prova de mordida do achado 1 (parte 1/2):
+    um 401 (cenário real de API key mal configurada — o mesmo que a
+    TASK-68 corrigiu no contrato) não é tratado por `_handle_error_status`
+    (que só cobre >=500) nem pelo `if resp.status_code == 404` — antes desta
+    task, sobrava só `resp.raise_for_status()` cru, que levanta
+    `httpx.HTTPStatusError` com a URL completa (telefone incluso) como texto
+    literal na mensagem. Contra o código antigo, o bloco `pytest.raises
+    (KuraApiError)` abaixo NÃO captura nada (a exceção real é
+    `httpx.HTTPStatusError`, não subclasse de `KuraApiError`) — o teste
+    falha com a exceção crua subindo, telefone e tudo, visível na saída do
+    pytest. Contra o novo (`_levantar_erro_sanitizado`), `KuraApiError` é
+    levantado com a URL redigida.
+    """
+    numero = "5511900001111"
+    respx.get(f"{BASE}/api/v1/tutores/telefone/{numero}").mock(
+        return_value=httpx.Response(401, text="Unauthorized")
+    )
+
+    with pytest.raises(KuraApiError) as exc_info:
+        await client.buscar_tutor_por_telefone(numero)
+
+    mensagem = str(exc_info.value)
+    assert numero not in mensagem, f"telefone vazou na mensagem da exceção: {mensagem!r}"
+    assert exc_info.value.status_code == 401
+    assert "401" in mensagem
+    assert "/tutores/telefone/{redacted}" in mensagem
+
+
+@respx.mock
+async def test_buscar_tutor_401_traceback_logado_nao_vaza_telefone(client: KuraClient) -> None:
+    """TASK-72 fix round 1 — prova de mordida do achado 1 (parte 2/2, achado
+    2 do brief): reproduz literalmente o padrão de
+    `inbound_message_service.py:65-68` (`except Exception as exc:
+    logger.exception(...)`) e captura o `LogRecord` real, formatando o
+    traceback completo como `logging`/`LogErroRepository.from_exception`
+    fazem de verdade (`traceback.format_exception`, não só
+    `record.getMessage()`).
+
+    Cobre uma armadilha que o fix ingênuo de `_levantar_erro_sanitizado`
+    caiu numa primeira versão: `raise KuraApiError(...) from exc` preserva
+    `__cause__`, e a formatação de traceback do Python imprime a cadeia
+    INTEIRA — a `httpx.HTTPStatusError` original (com o telefone cru)
+    reaparece via "The above exception was the direct cause of the
+    following exception", mesmo com a mensagem da exceção nova já
+    sanitizada. Só `from None` (usado na versão final) resolve. Este teste
+    teria APROVADO um fix com `from exc` só olhando `str(exc)` — por isso
+    ele formata o traceback completo, igual `logger.exception` faz.
+
+    Contra o código antigo (sem `_levantar_erro_sanitizado`), a exceção
+    crua (`httpx.HTTPStatusError`, telefone na mensagem) é capturada pelo
+    `except Exception` e o traceback formatado contém o telefone — falha.
+    """
+    numero = "5511900002222"
+    respx.get(f"{BASE}/api/v1/tutores/telefone/{numero}").mock(
+        return_value=httpx.Response(401, text="Unauthorized")
+    )
+
+    handler = _ListaHandler()
+    caller_logger = logging.getLogger("tests.fake_caller_inbound_message_service")
+    caller_logger.addHandler(handler)
+    caller_logger.setLevel(logging.DEBUG)
+    caller_logger.propagate = False
+    try:
+        try:
+            await client.buscar_tutor_por_telefone(numero)
+            pytest.fail("esperava uma exceção de erro HTTP")
+        except Exception:
+            # mesmo padrão de inbound_message_service.py:65-68
+            caller_logger.exception("Erro inesperado em InboundMessageService.processar")
+    finally:
+        caller_logger.removeHandler(handler)
+
+    assert handler.records, "esperava um registro de log emitido pelo caller"
+    for record in handler.records:
+        texto_completo = record.getMessage()
+        if record.exc_info:
+            texto_completo += "\n" + "".join(traceback.format_exception(*record.exc_info))
+        assert numero not in texto_completo, f"telefone vazou no traceback logado: {texto_completo!r}"
 
 
 # ── registrar_interacao ───────────────────────────────────────────────────────
