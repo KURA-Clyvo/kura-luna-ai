@@ -6,6 +6,7 @@ import httpx
 import pytest
 import respx
 
+from src.config.logging_config import setup_logging
 from src.integration.dtos import InteractionRequestDTO, TriageRequestDTO
 from src.integration.exceptions import KuraApiError, KuraTimeoutError
 from src.integration.kura_client import KuraClient
@@ -173,6 +174,73 @@ async def test_buscar_tutor_404_loga_sem_telefone(
     kura_client_records = [r for r in caplog.records if r.name == "src.integration.kura_client"]
     assert kura_client_records, "esperava um log emitido no caminho 404"
     assert all(numero not in record.getMessage() for record in kura_client_records)
+
+
+class _ListaHandler(logging.Handler):
+    """Handler mínimo que só acumula os LogRecord recebidos, para inspecionar
+    a mensagem *já formatada* (`record.getMessage()`) de verdade — não a
+    configuração do logger. Anexado diretamente ao root DEPOIS de
+    `setup_logging()` porque `dictConfig` (não incremental) remove qualquer
+    handler pré-existente do root, o que quebraria o handler que o próprio
+    `caplog` do pytest anexa automaticamente antes do corpo do teste rodar."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@respx.mock
+async def test_httpx_nao_vaza_telefone_no_log_nativo(client: KuraClient) -> None:
+    """TASK-72 — prova de mordida (§1.3.a): contra o código anterior a esta
+    task, `setup_logging()` não configurava nada para o logger nativo
+    `httpx`, que loga `'HTTP Request: %s %s "%s %d %s"'` em INFO com a URL
+    completa — telefone incluso — no argumento da URL. Este teste roda o
+    caminho de produção real (`setup_logging()`, não uma config fake) e
+    captura o `LogRecord` de verdade emitido pelo logger `"httpx"` durante
+    uma chamada real do client via respx. Contra o código antigo, o telefone
+    aparece na mensagem formatada e a asserção abaixo falha. Contra o novo
+    (filtro `RedigirUrlSensivelFilter` registrado no logger `"httpx"` por
+    `setup_logging()`), o telefone é redigido mas método, status e o
+    marcador do path continuam visíveis — o log não vira cego.
+    """
+    numero = "5511977776666"
+    respx.get(f"{BASE}/api/v1/tutores/telefone/{numero}").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id_tutor": 1,
+                "nm_tutor": "Ana",
+                "ds_whatsapp": f"+{numero}",
+                "id_clinica": 1,
+                "pets": [],
+            },
+        )
+    )
+
+    setup_logging("INFO")  # mesmo caminho de `luna serve` / `run-job` / `detect`
+    handler = _ListaHandler()
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        tutor = await client.buscar_tutor_por_telefone(numero)
+    finally:
+        root.removeHandler(handler)
+
+    assert tutor is not None
+
+    httpx_records = [r for r in handler.records if r.name == "httpx"]
+    assert httpx_records, "esperava um registro emitido pelo logger nativo 'httpx'"
+    for record in httpx_records:
+        mensagem = record.getMessage()
+        assert numero not in mensagem, f"telefone vazou no log do httpx: {mensagem!r}"
+        # o log continua útil para diagnóstico: método, status e o marcador
+        # do path redigido continuam visíveis — não é silenciamento total.
+        assert "GET" in mensagem
+        assert "200" in mensagem
+        assert "/tutores/telefone/{redacted}" in mensagem
 
 
 # ── registrar_interacao ───────────────────────────────────────────────────────
