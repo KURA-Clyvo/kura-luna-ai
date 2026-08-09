@@ -56,13 +56,13 @@ def test_cenario_alta_urgencia(
     ENTÃO: interação enviada, triagem ALTA enviada, Twilio recebe texto de urgência.
     """
     # Mocks da API .NET
-    respx.get(f"{_KURA_BASE}/api/tutores/telefone/5511999000001").mock(
+    respx.get(f"{_KURA_BASE}/api/v1/tutores/telefone/5511999000001").mock(
         return_value=httpx.Response(200, json=_TUTOR_PAYLOAD)
     )
-    interaction_route = respx.post(f"{_KURA_BASE}/api/luna/interactions").mock(
+    interaction_route = respx.post(f"{_KURA_BASE}/api/v1/luna/interactions").mock(
         return_value=httpx.Response(201, json={"id_interacao": 100})
     )
-    triage_route = respx.post(f"{_KURA_BASE}/api/luna/triage").mock(
+    triage_route = respx.post(f"{_KURA_BASE}/api/v1/luna/triage").mock(
         return_value=httpx.Response(201, json={"id_triagem": 200})
     )
 
@@ -99,13 +99,13 @@ def test_cenario_tutor_desconhecido(
     QUANDO POST /webhook/twilio/whatsapp,
     ENTÃO: interação com id_tutor=None, SEM chamada a /triage, fallback Twilio.
     """
-    respx.get(f"{_KURA_BASE}/api/tutores/telefone/5511999000002").mock(
+    respx.get(f"{_KURA_BASE}/api/v1/tutores/telefone/5511999000002").mock(
         return_value=httpx.Response(404)
     )
-    interaction_route = respx.post(f"{_KURA_BASE}/api/luna/interactions").mock(
+    interaction_route = respx.post(f"{_KURA_BASE}/api/v1/luna/interactions").mock(
         return_value=httpx.Response(201, json={"id_interacao": 101})
     )
-    triage_route = respx.post(f"{_KURA_BASE}/api/luna/triage").mock(
+    triage_route = respx.post(f"{_KURA_BASE}/api/v1/luna/triage").mock(
         return_value=httpx.Response(201, json={"id_triagem": 999})
     )
 
@@ -140,7 +140,7 @@ def test_cenario_net_fora_do_ar(
     QUANDO POST /webhook/twilio/whatsapp,
     ENTÃO: TwiML 200 imediato, LOG_ERRO registrado, fallback Twilio enviado.
     """
-    respx.get(f"{_KURA_BASE}/api/tutores/telefone/5511999000003").mock(
+    respx.get(f"{_KURA_BASE}/api/v1/tutores/telefone/5511999000003").mock(
         return_value=httpx.Response(503, text="Service Unavailable")
     )
 
@@ -169,11 +169,11 @@ def test_tres_cenarios_em_menos_de_3s(
 ) -> None:
     """Verifica que todos os cenários completam em tempo aceitável."""
     # Setup mocks genéricos
-    respx.get(url__regex=r"/api/tutores/.*").mock(return_value=httpx.Response(200, json=_TUTOR_PAYLOAD))
-    respx.post(f"{_KURA_BASE}/api/luna/interactions").mock(
+    respx.get(url__regex=r"/api/v1/tutores/.*").mock(return_value=httpx.Response(200, json=_TUTOR_PAYLOAD))
+    respx.post(f"{_KURA_BASE}/api/v1/luna/interactions").mock(
         return_value=httpx.Response(201, json={"id_interacao": 1})
     )
-    respx.post(f"{_KURA_BASE}/api/luna/triage").mock(
+    respx.post(f"{_KURA_BASE}/api/v1/luna/triage").mock(
         return_value=httpx.Response(201, json={"id_triagem": 1})
     )
 

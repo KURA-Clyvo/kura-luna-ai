@@ -181,7 +181,7 @@ A partir da v2.0, a Luna inclui um servidor FastAPI bidirecional para receber me
 | Variável | Descrição | Default |
 |---|---|---|
 | `KURA_API_BASE_URL` | URL base da API .NET | — (obrigatório) |
-| `KURA_API_KEY` | Bearer token Luna → .NET | — (obrigatório) |
+| `KURA_API_KEY` | API Key Luna → .NET (header `X-Api-Key`) | — (obrigatório) |
 | `KURA_API_TIMEOUT` | Timeout HTTP (segundos) | `10` |
 | `WEBHOOK_PUBLIC_URL` | URL pública do webhook (validação Twilio) | — (obrigatório) |
 | `LUNA_HTTP_PORT` | Porta HTTP | `8000` |
@@ -205,10 +205,10 @@ Tutor WhatsApp → Twilio → POST /webhook/twilio/whatsapp
                           Retorna TwiML <Response/> em < 200ms
                                     │ (BackgroundTask)
                           InboundMessageService.processar()
-                            ├─ GET /api/tutores/telefone/{nr}  [.NET]
-                            ├─ POST /api/luna/interactions     [.NET]
-                            ├─ TriageEngine.classificar()      [local]
-                            ├─ POST /api/luna/triage           [.NET]
+                            ├─ GET /api/v1/tutores/telefone/{nr}  [.NET]
+                            ├─ POST /api/v1/luna/interactions     [.NET]
+                            ├─ TriageEngine.classificar()         [local]
+                            ├─ POST /api/v1/luna/triage           [.NET]
                             └─ TwilioGateway.enviar_whatsapp() [outbound]
 ```
 

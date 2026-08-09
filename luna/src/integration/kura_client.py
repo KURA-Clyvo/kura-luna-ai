@@ -1,4 +1,5 @@
 """IKuraClient Protocol e KuraClient (httpx async) para a API .NET Kura."""
+import logging
 from typing import Protocol, runtime_checkable
 
 import httpx
@@ -9,6 +10,8 @@ from src.integration.dtos import (
     TutorContextoDTO,
 )
 from src.integration.exceptions import KuraApiError, KuraTimeoutError
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -54,7 +57,11 @@ class KuraClient:
     # ── helpers ──────────────────────────────────────────────────────────────
 
     def _auth_headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self._api_key}"}
+        # TASK-68: os 3 endpoints consumidos pela Luna (tutores/telefone,
+        # luna/interactions, luna/triage) são autenticados por API Key server-
+        # a-servidor via LunaApiKeyAuthFilter (backend-clinica-dotnet), não por
+        # JWT — o header exigido é X-Api-Key, não Authorization: Bearer.
+        return {"X-Api-Key": self._api_key}
 
     def _handle_error_status(self, response: httpx.Response) -> None:
         """Levanta KuraApiError para respostas 5xx."""
@@ -67,7 +74,7 @@ class KuraClient:
         """Retorna TutorContextoDTO ou None (404). Levanta KuraApiError em 5xx."""
         try:
             resp = await self._client.get(
-                f"{self._base}/api/tutores/telefone/{numero}",
+                f"{self._base}/api/v1/tutores/telefone/{numero}",
                 headers=self._auth_headers(),
                 timeout=self._timeout,
             )
@@ -75,16 +82,23 @@ class KuraClient:
             raise KuraTimeoutError() from exc
 
         if resp.status_code == 404:
+            # TASK-68: com o endpoint agora existindo (TASK-67), 404 passa a
+            # significar "tutor realmente não cadastrado" — legítimo e não
+            # logado como erro. Mas registrar em INFO para que um 404 causado
+            # por rota errada (regressão futura de URL) fique distinguível de
+            # "tutor não encontrado" em vez de silencioso. LGPD: NUNCA logar o
+            # número de telefone (mesma regra da TASK-46 em _enviar_fallback).
+            logger.info("buscar_tutor_por_telefone: nenhum tutor encontrado (404)")
             return None
         self._handle_error_status(resp)
         resp.raise_for_status()
         return TutorContextoDTO.model_validate(resp.json())
 
     async def registrar_interacao(self, dto: InteractionRequestDTO) -> int:
-        """Envia POST /api/luna/interactions. Retorna id_interacao."""
+        """Envia POST /api/v1/luna/interactions. Retorna id_interacao."""
         try:
             resp = await self._client.post(
-                f"{self._base}/api/luna/interactions",
+                f"{self._base}/api/v1/luna/interactions",
                 json=dto.model_dump(mode="json"),
                 headers=self._auth_headers(),
                 timeout=self._timeout,
@@ -97,10 +111,10 @@ class KuraClient:
         return int(resp.json()["id_interacao"])
 
     async def registrar_triagem(self, dto: TriageRequestDTO) -> int:
-        """Envia POST /api/luna/triage. Retorna id_triagem."""
+        """Envia POST /api/v1/luna/triage. Retorna id_triagem."""
         try:
             resp = await self._client.post(
-                f"{self._base}/api/luna/triage",
+                f"{self._base}/api/v1/luna/triage",
                 json=dto.model_dump(mode="json"),
                 headers=self._auth_headers(),
                 timeout=self._timeout,
