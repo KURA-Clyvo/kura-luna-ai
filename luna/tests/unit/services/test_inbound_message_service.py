@@ -225,31 +225,64 @@ async def test_fallback_twilio_falha_nao_propaga(
 
 
 async def test_fallback_twilio_falha_nao_loga_telefone_cru(
-    service: InboundMessageService,
     kura_client: AsyncMock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """TASK-46: `_enviar_fallback` logava o telefone cru via logger.error do
-    log padrão da aplicação (destino diferente do LOG_ERRO/Oracle já corrigido
-    na TASK-35, mesmo problema de LGPD). Confirma que o número não aparece em
-    nenhum registro de log emitido durante o fluxo de fallback."""
+    """TASK-46 (versão original, SUBSTITUÍDA na TASK-75): `_enviar_fallback`
+    logava o telefone cru via logger.error do log padrão da aplicação
+    (destino diferente do LOG_ERRO/Oracle já corrigido na TASK-35, mesmo
+    problema de LGPD).
+
+    A versão original deste teste injetava `OSError("Twilio offline")` —
+    uma string sem telefone nenhum — então `numero not in
+    record.getMessage()` era vacuamente verdadeiro e nunca exercitou o
+    caminho real (achado da auditoria da TASK-75). Este teste substitui o
+    double genérico por uma `TwilioGateway` DE VERDADE (só
+    `twilio.rest.Client`, a camada HTTP, é mockada) disparando
+    `TwilioRestException` no formato real da API do Twilio para o código
+    21211 ("Invalid 'To' Phone Number"), que embute o telefone completo
+    em `.msg` (ver `src/messaging/twilio_client.py:47-68` e
+    `tests/unit/messaging/test_twilio_client.py` para a evidência do
+    formato do SDK).
+
+    `inbound_message_service.py:139` (`logger.error("Falha ao enviar
+    fallback message_sid=%s: %s", msg.message_sid, exc)`) loga o objeto
+    `exc` inteiro com `%s` — a defesa contra vazamento tem que vir de
+    `TwilioGateway` nunca produzir um `exc` com o telefone dentro, não
+    deste logger.error. Prova de mordida: falha contra o
+    `twilio_client.py` anterior à TASK-75, passa depois."""
+    from twilio.base.exceptions import TwilioRestException
+
+    from src.messaging.twilio_client import TwilioGateway
+
     numero = "5511988887777"
     kura_client.buscar_tutor_por_telefone.side_effect = RuntimeError("crash")
 
-    async def twilio_erro(*_a, **_kw) -> None:
-        raise OSError("Twilio offline")
+    with patch("src.messaging.twilio_client.Client") as mock_client_cls:
+        mock_client_cls.return_value.messages.create.side_effect = TwilioRestException(
+            status=400,
+            uri="/2010-04-01/Accounts/ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/Messages.json",
+            msg=(
+                "Unable to create record: The 'To' number whatsapp:+55"
+                f"{numero} is not a valid phone number."
+            ),
+            code=21211,
+            method="POST",
+        )
+        gateway = TwilioGateway(account_sid="AC1", auth_token="tok", from_number="+14155238886")
+        real_service = InboundMessageService(
+            kura_client=kura_client,
+            triage_engine=MagicMock(),
+            twilio_gateway=gateway,
+            log_repo=MagicMock(),
+        )
 
-    with (
-        caplog.at_level(logging.ERROR),
-        patch(
-            "src.services.inbound_message_service.asyncio.to_thread",
-            new=AsyncMock(side_effect=twilio_erro),
-        ),
-    ):
-        result = await service.processar(_make_msg(numero=numero))
+        with caplog.at_level(logging.ERROR):
+            result = await real_service.processar(_make_msg(numero=numero))
 
     assert result.resposta_enviada == _RESPOSTA_FALLBACK
-    assert all(numero not in record.getMessage() for record in caplog.records)
+    assert numero not in caplog.text
+    assert "not a valid phone number" not in caplog.text
     fallback_records = [
         record for record in caplog.records if "Falha ao enviar fallback" in record.getMessage()
     ]

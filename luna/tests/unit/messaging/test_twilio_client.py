@@ -1,11 +1,11 @@
 """Tests for TwilioGateway and templates."""
+import traceback
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.messaging.twilio_client import ITwilioGateway, MessagingError, TwilioGateway
 from src.messaging.templates import lembrete_vacina, sugestao_cuidados_raca
-
+from src.messaging.twilio_client import ITwilioGateway, MessagingError, TwilioGateway
 
 # ---------------------------------------------------------------------------
 # TwilioGateway
@@ -63,6 +63,69 @@ def test_enviar_whatsapp_twilio_rest_exception_vira_messaging_error(
     gw = TwilioGateway(account_sid="AC1", auth_token="tok", from_number="+14155238886")
     with pytest.raises(MessagingError, match="Twilio REST error"):
         gw.enviar_whatsapp(para="11999999999", mensagem="msg")
+
+
+@patch("src.messaging.twilio_client.Client")
+def test_enviar_whatsapp_twilio_rest_exception_numero_invalido_nao_vaza_telefone(
+    mock_client_cls: MagicMock,
+) -> None:
+    """TASK-75: reproduz o formato REAL de erro que a API do Twilio devolve
+    para o código 21211 ("Invalid 'To' Phone Number") — confirmado contra
+    `twilio.base.version.Version.exception` (installed: twilio==9.3.2,
+    "Unable to create record: {message}") e contra relatos reais
+    equivalentes de outros SDKs oficiais do Twilio (twilio/twilio-php#399:
+    "The 'To' number phone=+35193XXXXXXX is not a valid phone number";
+    twilio/twilio-node#528: "Unable to create record: The From phone
+    number +919710000000 is not a valid..."). Nenhum teste deste arquivo
+    construía a exceção nesse formato antes — os anteriores usavam
+    msg="Unauthorized" (sem PII), o que não provava nada sobre o
+    vazamento real.
+
+    Prova de mordida: falha contra twilio_client.py anterior à TASK-75
+    (telefone aparecia em str(MessagingError) e na cadeia de causa —
+    `from exc` reimprime a TwilioRestException original via
+    traceback.format_exception), passa depois."""
+    from twilio.base.exceptions import TwilioRestException
+
+    numero = "5511988887777"
+    mock_client_cls.return_value.messages.create.side_effect = TwilioRestException(
+        status=400,
+        uri="/2010-04-01/Accounts/ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/Messages.json",
+        msg=(
+            "Unable to create record: The 'To' number whatsapp:+55"
+            f"{numero} is not a valid phone number."
+        ),
+        code=21211,
+        method="POST",
+    )
+
+    gw = TwilioGateway(account_sid="AC1", auth_token="tok", from_number="+14155238886")
+
+    with pytest.raises(MessagingError) as exc_info:
+        gw.enviar_whatsapp(para=numero, mensagem="msg")
+
+    raised = exc_info.value
+
+    # 1) a mensagem sanitizada não contém o telefone.
+    assert numero not in str(raised)
+    assert "not a valid phone number" not in str(raised)
+
+    # 2) `from None` foi usado — não `from exc` — então __cause__ está
+    #    suprimido e nenhum logger.exception()/traceback.format_exc() rio
+    #    abaixo consegue reimprimir a TwilioRestException original.
+    assert raised.__cause__ is None
+    assert raised.__suppress_context__ is True
+
+    formatted = "".join(
+        traceback.format_exception(type(raised), raised, raised.__traceback__)
+    )
+    assert numero not in formatted
+    assert "not a valid phone number" not in formatted
+
+    # 3) diagnóstico ainda disponível de forma segura: código/status/uri
+    #    (uri nunca carrega o telefone — vai no corpo do POST, não na URL).
+    assert "21211" in str(raised)
+    assert "400" in str(raised)
 
 
 @patch("src.messaging.twilio_client.Client")
