@@ -48,13 +48,39 @@ class LogErroRepository:
                         },
                     )
                     conn.commit()
-        except Exception:
-            logger.exception(
+        except Exception as falha_insert:
+            # TASK-85 rodada de fix 1 (Important 1 da revisão G2): este é o
+            # fail-safe do PRÓPRIO sink — dispara quando o INSERT em LOG_ERRO
+            # falha (Oracle fora do ar, pool esgotado). `registrar()` é
+            # chamado, via `from_exception`, de DENTRO de um `except` ativo em
+            # produção (ex.: `InboundMessageService.processar`) — então a
+            # exceção de falha do INSERT nasce com `__context__` apontando
+            # para a cadeia que motivou a chamada, PII inclusa (o mesmo
+            # mecanismo de `__context__` implícito que o docstring de
+            # `from_exception`, acima, descreve). `logger.exception(...)`
+            # (chain=True implícito via `exc_info=True`) reimprimiria essa
+            # cadeia inteira para `luna.log`, exatamente a classe de bug que
+            # esta task existe para fechar — só que no sink, não na origem.
+            #
+            # Fix: NÃO usar `logger.exception`/`exc_info=True` aqui, e NÃO
+            # relogar `mensagem` (parâmetro do chamador — pode já carregar
+            # PII embutida diretamente por f-string em algum chamador futuro,
+            # mesma classe do achado 5b da revisão). Em vez disso,
+            # `traceback.format_exception_only(type, value)` devolve só o
+            # TIPO e a MENSAGEM da falha do INSERT em si (ex.: "DPY-4011:
+            # ..." / "ORA-12541: ..."), sem recursar em `__cause__`/
+            # `__context__` e sem os frames do traceback — preserva o
+            # diagnóstico útil (por que o INSERT falhou) sem depender de
+            # nenhum chamador, presente ou futuro, ter lembrado `from None`.
+            detalhe_falha_insert = "".join(
+                traceback.format_exception_only(type(falha_insert), falha_insert)
+            ).strip()
+            logger.error(
                 "LogErroRepository falhou ao gravar em LOG_ERRO — "
-                "procedure=%s codigo=%d mensagem=%s",
+                "procedure=%s codigo=%d causa_falha_insert=%s",
                 nm_procedure,
                 codigo,
-                mensagem,
+                detalhe_falha_insert,
             )
 
     @classmethod

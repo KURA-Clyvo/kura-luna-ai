@@ -1,6 +1,9 @@
 """Tests for LogErroRepository — fail-safe behavior."""
+import logging
 import traceback
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.db.repositories.log_erro_repo import LogErroRepository
 
@@ -144,6 +147,91 @@ def test_from_exception_nao_reimprime_cadeia_de_causa_com_telefone() -> None:
     # jogo aqui, não um acaso de string: o marcador que o Python usa para
     # reimprimir a causa não pode estar presente.
     assert "direct cause of the following exception" not in stack_trace_persistido
+
+
+def test_registrar_fail_safe_nao_reimprime_cadeia_de_causa_com_telefone(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """TASK-85 rodada de fix 1 (Important 1 da revisão G2): o `except
+    Exception` no FIM de `registrar()` é o fail-safe do próprio sink — só
+    dispara quando o INSERT em LOG_ERRO em si falha (Oracle fora do ar, pool
+    esgotado). Ele não tinha teste nenhum antes desta rodada.
+
+    Cenário construído como a produção constrói: um `except` ATIVO com PII
+    (a exceção original do tutor/Twilio), chamando `registrar()` de dentro
+    dele — e o INSERT falha. Antes do fix, `logger.exception(...)`
+    reimprimia (chain=True implícito) a cadeia inteira, telefone incluso,
+    para o `luna.log`. Este teste chama `registrar()` diretamente (não
+    `from_exception`) porque o fail-safe fica dentro de `registrar()` — é
+    o `except` mais interno, o que protege o INSERT em si.
+    """
+    falha_insert = RuntimeError("DPY-4011: connection to database failed")
+    pool = _make_pool(cursor_side_effect=falha_insert)
+    repo = LogErroRepository(pool=pool)
+
+    def _origem_com_telefone_cru() -> None:
+        raise ValueError(
+            "Unable to create record: The 'To' number "
+            f"whatsapp:+55{_TELEFONE_SINTETICO} is not a valid phone number."
+        )
+
+    def _chamador_que_esqueceu_from_none() -> None:
+        try:
+            _origem_com_telefone_cru()
+        except ValueError as causa_com_pii:
+            raise RuntimeError("Falha ao processar mensagem") from causa_com_pii
+
+    with caplog.at_level(logging.ERROR):
+        try:
+            _chamador_que_esqueceu_from_none()
+        except RuntimeError as exc_final:
+            # registrar() chamado de DENTRO do except ativo — como em
+            # produção, via from_exception — e o INSERT falha (pool mockado
+            # acima levanta falha_insert).
+            repo.registrar(
+                nm_procedure="proc_z",
+                codigo=-1,
+                mensagem=str(exc_final),
+            )
+
+    saida_log = caplog.text
+    assert _TELEFONE_SINTETICO not in saida_log
+    assert "not a valid phone number" not in saida_log
+    assert "direct cause of the following exception" not in saida_log
+    # retenção de diagnóstico: o motivo REAL da falha do INSERT continua no
+    # log — sem isso, o fix seria indistinguível de apagar tudo (Minor 3 da
+    # revisão G2 da TASK-85, aplicado aqui de propósito).
+    assert "DPY-4011" in saida_log
+
+
+def test_registrar_fail_safe_nao_loga_mensagem_do_chamador_com_pii(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Complementar ao teste acima: mesmo quando a MENSAGEM do chamador (não
+    a cadeia de causa) já carrega PII embutida diretamente — cenário da
+    mesma classe do achado 5b da revisão G2 (um `except Exception` genérico
+    que compôs o texto de fora por f-string, ex. `MessagingError(f"...
+    {exc}")`) — o log de fail-safe não pode reimprimir esse texto. O fix
+    para de logar `mensagem` (parâmetro do chamador) neste ponto
+    especificamente por causa deste risco.
+    """
+    falha_insert = RuntimeError("ORA-12541: TNS:no listener")
+    pool = _make_pool(cursor_side_effect=falha_insert)
+    repo = LogErroRepository(pool=pool)
+
+    mensagem_com_pii_do_chamador = (
+        "Falha ao enviar WhatsApp: Unable to create record: The 'To' number "
+        f"whatsapp:+55{_TELEFONE_SINTETICO} is not a valid phone number."
+    )
+
+    with caplog.at_level(logging.ERROR):
+        repo.registrar(nm_procedure="proc_w", codigo=-1, mensagem=mensagem_com_pii_do_chamador)
+
+    saida_log = caplog.text
+    assert _TELEFONE_SINTETICO not in saida_log
+    assert "not a valid phone number" not in saida_log
+    # retenção de diagnóstico: continua sabendo por que o INSERT falhou.
+    assert "ORA-12541" in saida_log
 
 
 def test_registrar_trunca_mensagem_longa() -> None:
