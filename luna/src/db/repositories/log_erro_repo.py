@@ -65,11 +65,34 @@ class LogErroRepository:
         exc: BaseException,
         parametros: str | None = None,
     ) -> None:
-        """Helper: registra uma exceção com stack trace completo."""
+        """Helper: registra uma exceção com stack trace completo.
+
+        TASK-85 (LGPD): `chain=False` é deliberado, não um detalhe de
+        formatação. `traceback.format_exc()` (chain=True, o default) reimprime
+        a cadeia de causa inteira — `__cause__`/`__context__` — incluindo a
+        mensagem de qualquer exceção original que tenha sido encadeada com
+        `raise ... from exc` (em vez de `from None`) em algum ponto acima
+        deste helper. Essa é exatamente a armadilha documentada no CLAUDE.md
+        do projeto: um `from exc` esquecido em QUALQUER chamador, presente ou
+        futuro, faz o texto sensível (ex.: telefone do tutor embutido pelo SDK
+        do Twilio ou pela URL de uma exceção HTTP) reaparecer aqui, mesmo que
+        a exceção "de fora" já esteja com a mensagem sanitizada — porque quem
+        reimprime a cadeia é a formatação do traceback, não `str(exc)`.
+
+        Este repository é o sink que grava em LOG_ERRO (tabela Oracle
+        compartilhada) e é fail-safe por design — não pode depender de todo
+        chamador, presente ou futuro, lembrar de usar `from None`. Cortar a
+        cadeia aqui (`chain=False`) é defesa em profundidade: mantém a
+        rastreabilidade do frame que efetivamente falhou (tipo, mensagem e
+        stack da exceção recebida), sem herdar o que uma causa encadeada
+        possa carregar. Ver `tests/unit/db/test_log_erro_repo.py::
+        test_from_exception_nao_reimprime_cadeia_de_causa_com_telefone` para
+        a prova de mordida (falha com `chain=True`, passa com `chain=False`).
+        """
         repo.registrar(
             nm_procedure=nm_procedure,
             codigo=getattr(exc, "errno", -1) or -1,
             mensagem=str(exc),
             parametros=parametros,
-            stack_trace=traceback.format_exc(),
+            stack_trace=traceback.format_exc(chain=False),
         )
