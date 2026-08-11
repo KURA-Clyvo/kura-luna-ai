@@ -69,10 +69,10 @@ prefixo `whatsapp:` e sem `+`).
 **Resposta 401:** API Key ausente ou inválida.
 
 **Resposta 404:** Nenhum tutor ativo com esse telefone. Legítimo — significa
-"tutor desconhecido/não cadastrado", não erro. A Luna hoje **tenta** registrar
-a interação mesmo assim com `id_tutor=null` e envia fallback ao usuário — mas
-ver ⚠️ na seção `/interactions` abaixo: essa tentativa agora colide com uma
-regra de negócio nova de `/interactions`.
+"tutor desconhecido/não cadastrado", não erro. A Luna registra a interação
+mesmo assim, com `id_tutor=null`, e envia fallback ao usuário — desde a
+TASK-77 (`backend-clinica-dotnet`), `/interactions` aceita esse payload com
+`201` (ver seção abaixo; a divergência que existia aqui foi fechada).
 
 **Resposta 5xx:** Luna trata como falha irrecuperável, envia fallback ao
 usuário e registra em `LOG_ERRO`.
@@ -99,7 +99,7 @@ pela IA Luna. O servidor deriva `id_clinica` a partir do tutor.
 **Campos:**
 | Campo | Tipo | Obrigatório | Valores |
 |---|---|---|---|
-| `id_tutor` | int \| null | Chave sempre presente; valor pode ser `null` | ver ⚠️ abaixo — `null` hoje resulta em `422`, não em sucesso |
+| `id_tutor` | int \| null | Chave sempre presente; valor pode ser `null` | `null` = tutor desconhecido. Servidor grava a interação com `id_clinica`/`id_tutor` nulos (TASK-77, `V16__interacao_canal_clinica_nullable.sql`) |
 | `ds_canal` | string | Sim | `WHATSAPP`, `EMAIL`, `SMS` |
 | `ds_direcao` | string | Sim | `INBOUND`, `OUTBOUND` |
 | `ds_conteudo` | string | Sim | Corpo da mensagem |
@@ -119,34 +119,40 @@ a triagem.
 **Resposta 400:** Payload malformado (`ds_canal`/`ds_direcao` fora do enum,
 `ds_conteudo` vazio).
 
-**Resposta 404:** `id_tutor` informado não corresponde a um tutor existente.
+**Resposta 404:** `id_tutor` informado não corresponde a um tutor existente
+(caso de payload inconsistente — um `id_tutor` que a Luna mandou e não
+existe. Diferente de `id_tutor` ausente por tutor não cadastrado, que não é
+erro — ver abaixo).
 
-**Resposta 422:** `id_tutor` ausente (`null`) — o servidor não consegue
-derivar `id_clinica` sem um tutor.
-
-> ⚠️ **Divergência não corrigida, reportada na TASK-68 (ver relatório,
-> `DONE_WITH_CONCERNS`):** `InboundMessageService._processar_interno`
-> (`luna/src/services/inbound_message_service.py:83-91`) envia
-> `id_tutor=None` deliberadamente sempre que `buscar_tutor_por_telefone`
-> devolve `None` (tutor desconhecido) — esse era o comportamento **desenhado**
-> do fluxo "tutor desconhecido" e o contrato antigo (fictício) documentava
-> `null` como valor válido e esperado nesse caso. O contrato real
-> implementado pela TASK-67 (`LunaController.RegistrarInteracao`, ver
-> snapshot `task-68-contrato-dotnet-snapshot.md:58-59`) responde `422` a
-> exatamente esse payload. Como `registrar_interacao` não está dentro de um
-> `try/except` dedicado em `_processar_interno` (só o `try/except` externo de
-> `processar()` cobre), o efeito prático **não é um crash**: a exceção
-> (`httpx.HTTPStatusError`, ver divergência de tipagem abaixo) é capturada
-> pelo handler genérico, a Luna ainda envia o fallback ao tutor, mas **toda
-> mensagem de um número não cadastrado passa a gravar uma entrada em
-> `LOG_ERRO`** como se fosse um erro inesperado (não é) e **nenhuma
-> `INTERACAO_CANAL` é persistida** para esse caso — perda de dado de
-> analytics para todo o volume de tutores desconhecidos. Não corrigido nesta
-> task porque a correção certa depende de uma decisão de negócio que não é
-> desta task decidir: (a) o servidor deveria aceitar `id_tutor=null` nesse
-> endpoint (a TASK-67 ainda está em re-revisão), ou (b) o cliente deveria
-> parar de chamar `/interactions` para tutor desconhecido, aceitando a perda
-> de registro dessas mensagens.
+> ✅ **Divergência fechada pela TASK-77/TASK-78 (`FIX_7`).** Até a TASK-67,
+> `id_tutor=null` respondia `422` (*"servidor não consegue derivar
+> `id_clinica` sem um tutor"*) — mas `InboundMessageService._processar_interno`
+> (`luna/src/services/inbound_message_service.py`) sempre envia
+> `id_tutor=null` quando `buscar_tutor_por_telefone` devolve `None` (tutor
+> desconhecido é o fluxo real esperado em WhatsApp, não uma exceção). Como
+> `registrar_interacao` não está dentro de um `try/except` dedicado em
+> `_processar_interno`, o `422` propagava até o `except Exception` genérico de
+> `processar()`: a Luna ainda enviava o fallback ao tutor (nunca crashava),
+> mas gravava uma entrada FALSA em `LOG_ERRO` e **nenhuma** `INTERACAO_CANAL`
+> era persistida — perda de dado de analytics para todo o volume de tutores
+> desconhecidos.
+>
+> Decisão de produto do Felipe (TASK-77, `V16__interacao_canal_clinica_
+> nullable.sql` do `backend-tutor-java`, TASK-76): `INTERACAO_CANAL.ID_CLINICA`
+> passou a ser nullable, e `id_tutor=null` agora responde `201`, gravando a
+> interação com `id_clinica`/`id_tutor` nulos — o ganho é auditoria (a
+> mensagem não se perde), não visibilidade (uma linha com clínica nula é
+> invisível a qualquer leitura escopada por clínica). Do lado da Luna
+> (TASK-78), nenhuma mudança de código de produção foi necessária —
+> `buscar_tutor_por_telefone` já devolvia `None` de forma graciosa no 404 e
+> `_processar_interno` já pulava a triagem com `if tutor:` — o "erro falso"
+> em `LOG_ERRO` era consequência exclusiva do `422` que a TASK-77 removeu.
+> Provado ponta a ponta (não por leitura) em
+> `tests/integration/test_inbound_e2e.py::test_cenario_tutor_desconhecido`
+> (interação completa sem gravar `LOG_ERRO`) e
+> `::test_cenario_tutor_desconhecido_regressao_pre_task77_grava_log_erro`
+> (prova de mordida: reproduz o `422` antigo e confirma que o cenário acima
+> teria detectado a regressão).
 
 ---
 
@@ -242,8 +248,6 @@ Qualquer outra resposta (4xx, 5xx, timeout) faz o `/ready` da Luna reportar
   chamada a `registrar_triagem` num `try/except Exception` genérico (não
   bloqueia a resposta ao tutor) — mas é uma inconsistência de tipagem sem
   correção nesta task (ver relatório da TASK-68, §4).
-- `id_tutor=null` em `/interactions` — ver ⚠️ na seção do endpoint acima.
-  Divergência de comportamento (não de shape), reportada e não corrigida.
 - **Achado lateral, fora do escopo do brief, mas com implicação de LGPD real:**
   o log de request nativo do próprio `httpx` (nível INFO, formato "HTTP
   Request: GET .../telefone/{numero} ...") embute o número de telefone cru

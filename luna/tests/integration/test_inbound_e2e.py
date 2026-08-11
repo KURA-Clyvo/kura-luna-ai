@@ -93,11 +93,27 @@ def test_cenario_alta_urgencia(
 def test_cenario_tutor_desconhecido(
     e2e_client: TestClient,
     mock_twilio_gateway,
+    mock_log_repo_e2e,
 ) -> None:
     """
     DADO número não cadastrado (404 na API .NET),
     QUANDO POST /webhook/twilio/whatsapp,
-    ENTÃO: interação com id_tutor=None, SEM chamada a /triage, fallback Twilio.
+    ENTÃO: interação com id_tutor=None, SEM chamada a /triage, fallback Twilio,
+    e (TASK-78) SEM gravar em LOG_ERRO — o /interactions responde 201 (não mais
+    422) para id_tutor=null desde a TASK-77 (.NET, INTERACAO_CANAL.ID_CLINICA
+    nullable via V16), então o handler genérico de `processar()` nunca é
+    acionado neste caminho.
+
+    Antes da TASK-77, esta mesma sequência (404 -> POST /interactions com
+    id_tutor=null) recebia 422 do .NET, `_processar_interno` propagava
+    `KuraApiError`, o `except Exception` de `processar()` capturava e chamava
+    `LogErroRepository.from_exception` — um erro FALSO em LOG_ERRO para um
+    caso que não é erro (tutor desconhecido é esperado). Ver
+    `test_cenario_tutor_desconhecido_regressao_pre_task77_grava_log_erro`
+    logo abaixo: mesma sequência, só trocando a resposta mockada de
+    /interactions para 422, reproduz esse sintoma antigo E prova que a
+    asserção `assert_not_called()` abaixo não é vácua — ela morde se o
+    contrato regredir.
     """
     respx.get(f"{_KURA_BASE}/api/v1/tutores/telefone/5511999000002").mock(
         return_value=httpx.Response(404)
@@ -121,7 +137,65 @@ def test_cenario_tutor_desconhecido(
     # Sem chamada a /triage
     assert not triage_route.called
 
+    # TASK-78: sem gravação em LOG_ERRO — o caminho completo (404 -> 201 com
+    # id_tutor null) não passa pelo `except Exception` genérico de
+    # `processar()`, que é o único chamador de `LogErroRepository` nesta rota.
+    mock_log_repo_e2e.registrar.assert_not_called()
+
     # Twilio recebe fallback educado
+    mock_twilio_gateway.enviar_whatsapp.assert_called_once()
+    _, mensagem = mock_twilio_gateway.enviar_whatsapp.call_args[0]
+    assert "retornaremos" in mensagem.lower() or "recebemos" in mensagem.lower()
+
+
+@respx.mock
+def test_cenario_tutor_desconhecido_regressao_pre_task77_grava_log_erro(
+    e2e_client: TestClient,
+    mock_twilio_gateway,
+    mock_log_repo_e2e,
+) -> None:
+    """TASK-78 — prova de mordida (não teste vácuo): reproduz o comportamento
+    do `.NET` ANTES da TASK-77 (422 para `POST /luna/interactions` com
+    `id_tutor=null`) para provar que o teste acima teria detectado a
+    regressão que a TASK-78 fecha, em vez de passar por acidente.
+
+    Sequência idêntica ao cenário 2 (mesmo 404 em /tutores/telefone, mesmo
+    fluxo), só o mock de /interactions muda de 201 para 422. Resultado
+    esperado — e que ERA o sintoma real, documentado em
+    `luna/docs/api_contracts.md` antes desta task —: `_processar_interno`
+    propaga a exceção HTTP, o `except Exception` genérico de `processar()`
+    a captura, chama `LogErroRepository.from_exception` (grava em LOG_ERRO
+    um erro que não é erro de verdade) e ainda assim envia o fallback ao
+    tutor (nunca crasha — regra 6, resiliência).
+
+    Este teste FICA no repo como cinto-de-segurança: se o `.NET` voltar a
+    rejeitar `id_tutor=null`, é este teste (e não o cenário 2) que documenta
+    por que isso é uma regressão grave (perda silenciosa de registro +
+    entrada falsa em LOG_ERRO), e o cenário 2 é quem realmente falharia
+    contra um `.NET` real que regredisse.
+    """
+    respx.get(f"{_KURA_BASE}/api/v1/tutores/telefone/5511999000002").mock(
+        return_value=httpx.Response(404)
+    )
+    respx.post(f"{_KURA_BASE}/api/v1/luna/interactions").mock(
+        return_value=httpx.Response(
+            422,
+            json={
+                "title": "id_tutor é obrigatório para derivar id_clinica",
+                "status": 422,
+            },
+        )
+    )
+
+    resp = e2e_client.post("/webhook/twilio/whatsapp", data=_FORM_DESCONHECIDO)
+
+    # Nunca crasha para o Twilio — regra 6.
+    assert resp.status_code == 200
+
+    # É EXATAMENTE o sintoma que a TASK-78 fecha: erro falso gravado.
+    mock_log_repo_e2e.registrar.assert_called_once()
+
+    # Mesmo assim, fallback é enviado ao tutor.
     mock_twilio_gateway.enviar_whatsapp.assert_called_once()
     _, mensagem = mock_twilio_gateway.enviar_whatsapp.call_args[0]
     assert "retornaremos" in mensagem.lower() or "recebemos" in mensagem.lower()

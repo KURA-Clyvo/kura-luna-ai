@@ -114,6 +114,7 @@ async def test_tutor_nao_encontrado_registra_interacao_sem_tutor(
     service: InboundMessageService,
     kura_client: AsyncMock,
     triage_engine: MagicMock,
+    log_repo: MagicMock,
 ) -> None:
     kura_client.buscar_tutor_por_telefone.return_value = None
     kura_client.registrar_interacao.return_value = 5
@@ -126,6 +127,16 @@ async def test_tutor_nao_encontrado_registra_interacao_sem_tutor(
     triage_engine.classificar.assert_not_called()
     kura_client.registrar_triagem.assert_not_awaited()
     assert result.resposta_enviada == _RESPOSTA_FALLBACK
+    # TASK-78: desde que registrar_interacao() completa sem levantar (o
+    # comportamento do KuraClient real desde a TASK-77 do .NET, que passou a
+    # aceitar id_tutor=null com 201 em vez de 422), o `except Exception`
+    # genérico de `processar()` nunca é acionado — logo LogErroRepository
+    # nunca é chamado para este caminho. Neste teste de unidade
+    # `kura_client` é um AsyncMock genérico (não exercita a conversão
+    # HTTP->exceção do KuraClient real); a prova ponta a ponta de que o
+    # cliente real de fato não levanta mais está em
+    # tests/integration/test_inbound_e2e.py::test_cenario_tutor_desconhecido.
+    log_repo.registrar.assert_not_called()
 
 
 # ── falhas de rede ────────────────────────────────────────────────────────────
