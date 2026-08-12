@@ -58,7 +58,7 @@ def get_http_client(request: Request) -> httpx.AsyncClient:
 
 def get_pool(request: Request) -> OracleConnectionPool | None:
     """Retorna o pool Oracle criado no lifespan (pode ser None se Oracle indisponível)."""
-    return getattr(request.app.state, "pool", None)  # type: ignore[no-any-return]
+    return getattr(request.app.state, "pool", None)
 
 
 def get_kura_client(

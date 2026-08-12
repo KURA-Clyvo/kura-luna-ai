@@ -1,12 +1,19 @@
 """Composition root e CLI da Luna — comandos Typer."""
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import typer
 
 from src.config.logging_config import setup_logging
 from src.config.settings import Settings
 from src.db.connection import OracleConnectionPool
+
+if TYPE_CHECKING:
+    # Import só para resolução de tipo (forward-ref nas anotações abaixo) — os imports reais
+    # continuam lazy dentro de cada função, para não pagar o custo de import pesado
+    # (ex.: torch/ultralytics via breed_service) na composição root inteira.
+    from src.services.breed_service import IdentificacaoRacaService
+    from src.services.notification_service import LembreteVacinaService
 
 logger = logging.getLogger(__name__)
 

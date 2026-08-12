@@ -103,7 +103,7 @@ class InboundMessageService:
                         id_interacao=id_interacao,
                         id_tutor=tutor.id_tutor,
                         sintomas=triage_result.sintomas_detectados,
-                        ds_urgencia=triage_result.urgencia,  # type: ignore[arg-type]
+                        ds_urgencia=triage_result.urgencia,
                         nr_score=triage_result.score,
                         ds_recomendacao=_RESPOSTAS.get(triage_result.urgencia, _RESPOSTA_FALLBACK),
                     )

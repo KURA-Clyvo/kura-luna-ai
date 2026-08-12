@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import Response
 
+from src.config.settings import Settings
 from src.messaging.twilio_inbound import (
     montar_twiml_ack,
     parse_inbound_payload,
@@ -17,7 +18,7 @@ router = APIRouter(tags=["webhook"])
 
 async def validar_twilio_signature(
     request: Request,
-    settings=Depends(get_settings),  # type: ignore[assignment]
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> None:
     """Dependency: valida X-Twilio-Signature antes de processar o payload.
 

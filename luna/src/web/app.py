@@ -9,7 +9,8 @@ from typing import AsyncGenerator
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
 
 from src.config.settings import Settings
 from src.integration.exceptions import KuraApiError, KuraTimeoutError
@@ -24,7 +25,9 @@ logger = logging.getLogger(__name__)
 class _RequestIDMiddleware(BaseHTTPMiddleware):
     """Adiciona X-Request-ID a cada resposta para rastreabilidade."""
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         response = await call_next(request)
         response.headers["X-Request-ID"] = str(uuid.uuid4())
         return response
@@ -62,8 +65,9 @@ def create_app(settings: Settings) -> FastAPI:
         yield
 
         await http_client.aclose()
-        if getattr(app.state, "pool", None) is not None:
-            app.state.pool.close()
+        active_pool = getattr(app.state, "pool", None)
+        if active_pool is not None:
+            active_pool.close()
 
     app = FastAPI(
         title="Luna",
