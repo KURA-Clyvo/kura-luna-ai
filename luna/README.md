@@ -2,10 +2,16 @@
 
 > Subprojeto do sistema **Kura / Clyvo Vet** · FIAP Challenge 2026
 
-Luna é o serviço Python responsável pela comunicação proativa e visão computacional do Kura. Ele opera em dois eixos:
+Luna é o serviço Python responsável pela **IA e pela comunicação proativa** do Kura. Ele opera em quatro blocos:
 
-1. **Lembretes de vacinas via WhatsApp** — lê vacinas próximas do vencimento no Oracle, cria registros de notificação e dispara mensagens pelo Twilio Sandbox.
-2. **Identificação de raça por foto** — detecta cão/gato com YOLOv8n, classifica a raça com MobileNetV3 e cruza com predisposições clínicas armazenadas no Oracle para gerar recomendação personalizada.
+1. **Triagem de urgência por WhatsApp** — recebe a mensagem do tutor via webhook Twilio, classifica a urgência com um motor de regras léxico (`TriageEngine`), registra interação e triagem na API .NET e responde ao tutor conforme o nível detectado. **É o bloco principal.**
+2. **Transcrição de consulta → rascunho SOAP** — recebe áudio do app da clínica, transcreve via OpenAI Whisper e organiza o texto nos campos Subjetivo/Objetivo/Avaliação/Plano. Não persiste nada: o veterinário confirma antes de salvar.
+3. **Lembretes de vacinas via WhatsApp** — lê vacinas próximas do vencimento no Oracle, cria registros de notificação e dispara mensagens pelo Twilio Sandbox. ⚠️ Ver `docs/IA_DEFINICAO.md` §9.3 antes de usar: a consulta da view diverge do schema vigente.
+4. **Identificação de raça por foto** — detecta cão/gato com YOLOv8n, classifica a raça com MobileNetV3 (35 raças) e cruza com predisposições clínicas no Oracle para gerar recomendação. ⚠️ Requer um checkpoint que **não está versionado** — ver `docs/IA_DEFINICAO.md` §9.2.
+
+> 📄 **A definição completa do componente de IA** — problema, dados, abordagem escolhida com
+> justificativa, arquitetura de integração e limites conhecidos — está em
+> **[`docs/IA_DEFINICAO.md`](docs/IA_DEFINICAO.md)**.
 
 ---
 
@@ -185,6 +191,8 @@ A partir da v2.0, a Luna inclui um servidor FastAPI bidirecional para receber me
 | `KURA_API_TIMEOUT` | Timeout HTTP (segundos) | `10` |
 | `WEBHOOK_PUBLIC_URL` | URL pública do webhook (validação Twilio) | — (obrigatório) |
 | `LUNA_HTTP_PORT` | Porta HTTP | `8000` |
+| `LUNA_INBOUND_API_KEY` | Chave que protege `POST /whatsapp/enviar` e `POST /transcricao` (header `X-API-Key`). Default vazio **de propósito**: sem chave, o endpoint recusa em vez de operar com credencial de exemplo | `""` |
+| `OPENAI_API_KEY` | Chave da OpenAI Whisper, usada por `POST /transcricao`. Sem ela o rascunho SOAP volta vazio (sem erro visível). Nunca logada nem devolvida em resposta. Custo ~US$ 0,006/min de áudio | `""` |
 
 ### Subindo o servidor
 

@@ -93,8 +93,9 @@ Abrir a imagem anotada (`labrador_teste_anotada.jpg`) — mostra o bounding box 
 
 **Fala sugerida:**
 > "O pipeline tem três etapas: primeiro o YOLOv8n detecta que há um cão na imagem.
-> Em seguida o MobileNetV3, treinado em 120 raças Stanford Dogs, classifica a raça
-> com 91% de confiança. Por último, cruzamos com a tabela `RACA` no Oracle — que a
+> Em seguida o MobileNetV3, com um recorte de 35 raças (30 de cães e 5 de gatos) da
+> nomenclatura Stanford Dogs, classifica a raça com 91% de confiança. Por último,
+> cruzamos com a tabela `RACA` no Oracle — que a
 > equipe de backend populou com predisposições clínicas — e geramos uma recomendação
 > personalizada para o tutor."
 
