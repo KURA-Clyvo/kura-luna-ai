@@ -145,3 +145,71 @@ def test_result_e_frozen(engine: TriageEngine) -> None:
 def test_sintomas_detectados_nao_vazios_em_alta(engine: TriageEngine) -> None:
     r = engine.classificar("meu pet está sangrando")
     assert len(r.sintomas_detectados) > 0
+
+
+# ── LU-07 item 1: fronteira de palavra (mordida nominal) ──────────────────────
+
+def test_acidentalmente_nao_casa_acidente_mordida_nominal(engine: TriageEngine) -> None:
+    """Mordida nominal do brief LU-07: "acidentalmente derrubei a ração" tem
+    que dar BAIXA. No motor de main (v1.0, substring), "acidente" é substring
+    de "acidentalmente" e a mensagem virava ALTA (trauma) por engano — ver
+    scripts/avaliar_triagem.py e o relatório para a prova contra main."""
+    r = engine.classificar("acidentalmente derrubei a ração")
+    assert r.urgencia == "BAIXA"
+
+
+def test_acidente_isolado_continua_casando(engine: TriageEngine) -> None:
+    r = engine.classificar("meu pet sofreu um acidente feio")
+    assert r.urgencia == "ALTA"
+
+
+# ── LU-07 item 2: negação com janela curta ─────────────────────────────────────
+
+def test_nao_esta_vomitando_mais_nao_vira_media_mordida_nominal(engine: TriageEngine) -> None:
+    """Mordida nominal do brief LU-07: "ele não está vomitando mais" não pode
+    dar MEDIA por causa do vômito. No motor de main (sem negação), este texto
+    dava MEDIA — ver relatório para a prova contra main."""
+    r = engine.classificar("ele não está vomitando mais")
+    assert r.urgencia != "MEDIA"
+
+
+def test_negacao_simples_anula_categoria_media(engine: TriageEngine) -> None:
+    r = engine.classificar("ele nao esta com febre")
+    assert r.urgencia != "MEDIA"
+
+
+def test_negacao_nunca_anula_categoria(engine: TriageEngine) -> None:
+    r = engine.classificar("ele nunca teve diarreia")
+    assert r.urgencia != "MEDIA"
+
+
+def test_negacao_parou_de_anula_categoria(engine: TriageEngine) -> None:
+    r = engine.classificar("ele parou de vomitar")
+    assert r.urgencia != "MEDIA"
+
+
+def test_negacao_fora_da_janela_nao_anula(engine: TriageEngine) -> None:
+    """Gatilho de negação longe demais (>3 tokens antes) não anula a categoria."""
+    r = engine.classificar("nao sei o que aconteceu ontem mas hoje ele esta vomitando")
+    assert r.urgencia == "MEDIA"
+
+
+def test_nao_respira_continua_alta_estado_grave_negado(engine: TriageEngine) -> None:
+    """Mordida nominal do escopo LU-07: "não respira" É a keyword positiva de
+    dispneia (estado grave) — ALTA é imune a negação, então continua ALTA."""
+    r = engine.classificar("meu cachorro não respira")
+    assert r.urgencia == "ALTA"
+
+
+def test_negacao_nao_anula_alta_mesmo_fora_de_estado_grave_embutido(engine: TriageEngine) -> None:
+    """Decisão de projeto (documentada em triage_rules.py): ALTA é imune à
+    negação por inteiro, não só nas keywords que já embutem "não" — nunca
+    afrouxamos ALTA para ganhar acurácia (regra do ciclo)."""
+    r = engine.classificar("felizmente ele nao teve convulsão, só ficou bem quieto")
+    assert r.urgencia == "ALTA"
+
+
+# ── LU-07 item 3: versão das regras ────────────────────────────────────────────
+
+def test_versao_regras_e_1_1() -> None:
+    assert TRIAGE_RULES_VERSION == "1.1"

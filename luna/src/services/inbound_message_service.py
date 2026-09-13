@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from src.ai.triage_engine import TriageEngine
 from src.db.repositories.log_erro_repo import LogErroRepository
-from src.integration.dtos import InteractionRequestDTO, TriageRequestDTO
+from src.integration.dtos import InteractionRequestDTO, TriageRequestDTO, TutorContextoDTO
 from src.integration.exceptions import KuraTimeoutError
 from src.integration.kura_client import IKuraClient
 from src.messaging.twilio_client import ITwilioGateway
@@ -19,6 +19,15 @@ _RESPOSTA_ALTA = (
     "Identificamos sintomas que requerem atenção urgente. "
     "Estamos notificando seu veterinário. "
     "Para emergências imediatas, ligue para a clínica."
+)
+# LU-07 item 4: tutor não identificado também é triado. Em ALTA, sem tutor
+# não sabemos qual é a clínica (não há veterinário vinculado para notificar),
+# então a resposta é genérica e orienta busca imediata — nunca cita nome de
+# clínica.
+_RESPOSTA_ALTA_TUTOR_DESCONHECIDO = (
+    "Identificamos sintomas que podem ser urgentes. "
+    "Procure atendimento veterinário imediato ou o pronto atendimento "
+    "veterinário mais próximo."
 )
 _RESPOSTA_MEDIA = "Mensagem recebida. Nossa equipe retorna em até 2 horas."
 _RESPOSTA_BAIXA = "Mensagem registrada. Respondemos em horário comercial."
@@ -78,6 +87,13 @@ class InboundMessageService:
             return await self._enviar_fallback(msg)
 
     async def _processar_interno(self, msg: InboundMessage) -> ProcessamentoResult:
+        # LU-07 item 4: classifica ANTES de saber se o tutor está
+        # identificado — tutor não cadastrado também é triado (auditoria §3
+        # do backlog). A resposta e o registro variam conforme `tutor`
+        # abaixo, mas a urgência em si nunca depende de tutor existir.
+        triage_result = self._triage.classificar(msg.corpo)
+        urgencia = triage_result.urgencia
+
         tutor = await self._kura.buscar_tutor_por_telefone(msg.numero_origem)
 
         id_interacao = await self._kura.registrar_interacao(
@@ -87,15 +103,19 @@ class InboundMessageService:
                 ds_direcao="INBOUND",
                 ds_conteudo=msg.corpo,
                 dt_recebimento=datetime.now(tz=timezone.utc),
+                # Sem tutor não há FK válida para TRIAGEM_LUNA (id_tutor é
+                # obrigatório lá) — registrar_triagem() nunca é chamado neste
+                # caminho, então a urgência vai em ds_metadados da própria
+                # interação para não se perder.
+                ds_metadados=(
+                    {"urgencia": urgencia, "regras_versao": triage_result.regras_versao}
+                    if tutor is None
+                    else None
+                ),
             )
         )
 
-        urgencia: str | None = None
-
         if tutor:
-            triage_result = self._triage.classificar(msg.corpo)
-            urgencia = triage_result.urgencia
-
             # Regra 6: falha de telemetria não derruba a resposta
             try:
                 await self._kura.registrar_triagem(
@@ -106,6 +126,7 @@ class InboundMessageService:
                         ds_urgencia=triage_result.urgencia,
                         nr_score=triage_result.score,
                         ds_recomendacao=_RESPOSTAS.get(triage_result.urgencia, _RESPOSTA_FALLBACK),
+                        regras_versao=triage_result.regras_versao,
                     )
                 )
             except Exception as exc:
@@ -117,7 +138,7 @@ class InboundMessageService:
                     parametros=str(id_interacao),
                 )
 
-        resposta = _RESPOSTAS.get(urgencia or "", _RESPOSTA_FALLBACK)
+        resposta = self._compor_resposta(urgencia, tutor)
         await asyncio.to_thread(self._twilio.enviar_whatsapp, msg.numero_origem, resposta)
 
         return ProcessamentoResult(
@@ -125,6 +146,25 @@ class InboundMessageService:
             urgencia=urgencia,
             resposta_enviada=resposta,
         )
+
+    @staticmethod
+    def _compor_resposta(urgencia: str, tutor: TutorContextoDTO | None) -> str:
+        """Monta a resposta ao tutor a partir da urgência (LU-07 itens 4 e 5).
+
+        ALTA sem tutor identificado usa uma resposta genérica sem nome de
+        clínica (não sabemos qual é). Com tutor identificado e exatamente 1
+        pet, prefixa contexto ("Recebemos a mensagem sobre o <pet>…") — com
+        0 ou 2+ pets, texto neutro (não chutar qual pet).
+        """
+        if urgencia == "ALTA":
+            base = _RESPOSTA_ALTA if tutor else _RESPOSTA_ALTA_TUTOR_DESCONHECIDO
+        else:
+            base = _RESPOSTAS.get(urgencia, _RESPOSTA_FALLBACK)
+
+        if tutor and len(tutor.pets) == 1:
+            pet_nome = tutor.pets[0].nm_pet
+            return f"Recebemos a mensagem sobre o {pet_nome}. {base}"
+        return base
 
     async def _enviar_fallback(self, msg: InboundMessage) -> ProcessamentoResult:
         """Envia resposta genérica ao tutor em caso de erro não recuperável."""
