@@ -1,12 +1,20 @@
 """Tests for BreedClassifier and helpers."""
-from unittest.mock import MagicMock, patch
-
-import numpy as np
 import pytest
-import torch
 
-from src.ai.breed_classifier import BreedClassifier, _recortar_bbox, _NUM_CLASSES
-from src.ai.breed_labels_ptbr import traduzir, BREED_LABELS_PTBR
+# LU-06: visão computacional é extra opcional (requirements-vision.txt) — sem torch/numpy/cv2
+# instalados, este arquivo inteiro é pulado (declarado, não silencioso) em vez de falhar a
+# coleta com ModuleNotFoundError. breed_classifier.py importa os três no nível do módulo.
+pytest.importorskip("torch", reason="requirements-vision.txt não instalado (LU-06)")
+pytest.importorskip("numpy", reason="requirements-vision.txt não instalado (LU-06)")
+pytest.importorskip("cv2", reason="requirements-vision.txt não instalado (LU-06)")
+
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
+
+from src.ai.breed_classifier import BreedClassifier, _recortar_bbox, _NUM_CLASSES  # noqa: E402
+from src.ai.breed_labels_ptbr import traduzir, BREED_LABELS_PTBR  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

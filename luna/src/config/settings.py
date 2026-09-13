@@ -14,8 +14,12 @@ class Settings(BaseSettings):
     TWILIO_TOKEN: str
     TWILIO_FROM_NUMBER: str
 
-    YOLO_WEIGHTS_PATH: str
-    BREED_CLASSIFIER_WEIGHTS_PATH: str
+    # LU-06 (imagem enxuta): default vazio — visão computacional é extra opcional
+    # (requirements-vision.txt). Sem checkpoint configurado, `luna detect` falha explícito com
+    # EXIT=2 (ver VisaoIndisponivelError em src/cli/main.py) em vez de um ValidationError genérico
+    # na inicialização de todo o processo (que hoje roda `run-job`/`serve` também).
+    YOLO_WEIGHTS_PATH: str = ""
+    BREED_CLASSIFIER_WEIGHTS_PATH: str = ""
 
     LOG_LEVEL: str = "INFO"
 

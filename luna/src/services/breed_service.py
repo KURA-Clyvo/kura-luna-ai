@@ -1,7 +1,6 @@
 """BreedService — orquestra foto → detecção → raça → recomendação."""
 import logging
 import os
-from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
@@ -10,6 +9,12 @@ from src.ai.breed_classifier import BreedClassifier, _recortar_bbox
 from src.ai.breed_detector import Deteccao, PetDetector
 from src.ai.recommender import RecomendacaoCuidados
 
+# LU-06 (imagem enxuta): ResultadoIdentificacao mora em src/services/resultado_identificacao.py, sem
+# dependência de cv2/numpy, para que a CLI e seus testes importem o DTO sem o extra
+# requirements-vision.txt instalado. Reexportado aqui para manter
+# `from src.services.breed_service import ResultadoIdentificacao` funcionando.
+from src.services.resultado_identificacao import ResultadoIdentificacao
+
 logger = logging.getLogger(__name__)
 
 _BBOX_COLOR = (0, 200, 0)     # verde BGR
@@ -17,17 +22,6 @@ _TEXT_COLOR = (255, 255, 255)  # branco
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _FONT_SCALE = 0.7
 _THICKNESS = 2
-
-
-@dataclass(frozen=True, slots=True)
-class ResultadoIdentificacao:
-    """Resultado completo do pipeline foto → raça → recomendação."""
-
-    deteccoes: list[Deteccao]
-    raca_top1: str | None
-    confianca: float | None
-    recomendacao: str | None
-    imagem_anotada_path: str | None
 
 
 class IdentificacaoRacaService:

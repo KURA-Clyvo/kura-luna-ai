@@ -30,6 +30,7 @@ src/ai/models/*.pth
 htmlcov/
 .pytest_cache/
 *.log
+logs/
 
 # IDE
 .vscode/

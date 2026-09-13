@@ -1,20 +1,14 @@
 """PetDetector — detecta cão/gato em imagem usando YOLOv8n."""
-from dataclasses import dataclass
-
 from ultralytics import YOLO
+
+# LU-06 (imagem enxuta): Deteccao mora em src/ai/deteccao.py, sem dependência de ultralytics/torch,
+# para que consumidores leves (CLI, testes de CLI) importem o DTO sem o extra requirements-vision.txt
+# instalado. Reexportado aqui para manter `from src.ai.breed_detector import Deteccao` funcionando.
+from src.ai.deteccao import Deteccao
 
 # Classes COCO relevantes para pets
 _PET_CLASSES = {"dog", "cat"}
 _CONF_THRESHOLD = 0.5
-
-
-@dataclass(frozen=True, slots=True)
-class Deteccao:
-    """Resultado de uma detecção YOLOv8."""
-
-    classe: str
-    confianca: float
-    bbox: tuple[int, int, int, int]  # x1, y1, x2, y2
 
 
 class PetDetector:

@@ -1,6 +1,7 @@
 """Logging configuration via dictConfig."""
 import logging
 import logging.config
+import os
 import re
 
 # TASK-72 (LGPD): o log INFO nativo do httpx ("HTTP Request: %s %s ...")
@@ -96,9 +97,35 @@ class RedigirUrlSensivelFilter(logging.Filter):
         return redigido if redigido != texto else valor
 
 
-def setup_logging(level: str = "INFO") -> None:
-    """Configure application logging with console and file handlers."""
-    config = {
+_DEFAULT_LOG_FILE = "logs/luna.log"
+
+
+def _montar_config(level: str, log_file: str | None) -> dict:
+    """Monta o dict de `dictConfig`. `log_file=None` produz config console-only.
+
+    Função pura — sem efeito colateral — separada de `setup_logging` só para poder montar a
+    variante console-only de novo no fallback do N8 sem duplicar o dict inteiro.
+    """
+    handlers: dict = {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+            "stream": "ext://sys.stdout",
+        },
+    }
+    root_handlers = ["console"]
+    if log_file:
+        handlers["file"] = {
+            "class": "logging.handlers.RotatingFileHandler",
+            "formatter": "standard",
+            "filename": log_file,
+            "maxBytes": 10_485_760,
+            "backupCount": 3,
+            "encoding": "utf-8",
+        }
+        root_handlers.append("file")
+
+    return {
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
@@ -112,24 +139,10 @@ def setup_logging(level: str = "INFO") -> None:
                 "()": "src.config.logging_config.RedigirUrlSensivelFilter",
             },
         },
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-                "formatter": "standard",
-                "stream": "ext://sys.stdout",
-            },
-            "file": {
-                "class": "logging.handlers.RotatingFileHandler",
-                "formatter": "standard",
-                "filename": "luna.log",
-                "maxBytes": 10_485_760,
-                "backupCount": 3,
-                "encoding": "utf-8",
-            },
-        },
+        "handlers": handlers,
         "root": {
             "level": level,
-            "handlers": ["console", "file"],
+            "handlers": root_handlers,
         },
         "loggers": {
             # TASK-72: filtro aplicado no logger "httpx" em si (não nas
@@ -142,4 +155,45 @@ def setup_logging(level: str = "INFO") -> None:
             },
         },
     }
-    logging.config.dictConfig(config)
+
+
+def setup_logging(level: str = "INFO") -> None:
+    """Configure application logging with console and (when possível) file handlers.
+
+    N8 (achado do G0, LU-06): `kura_luna_ai` roda como UID 1000 num `/app` cujo dono é `root`
+    (imagem construída como root, `docker exec ... run-job` sem `-w /tmp`). O `RotatingFileHandler`
+    antigo apontava para `"luna.log"` (relativo ao cwd, `/app`) e `dictConfig` — não incremental —
+    levantava `ValueError: Unable to configure handler 'file'` antes mesmo do job tocar o Oracle, o
+    que também derrubava o processo inteiro (`run-job`/`serve`/`detect` chamam `setup_logging` cedo).
+
+    Dois ajustes, sem mudar a política de LGPD de log (mesmo formatter, mesmo filtro
+    `RedigirUrlSensivelFilter` no logger `httpx`):
+    - `LOG_FILE_PATH` (env, default `logs/luna.log`) — caminho configurável, e o diretório é
+      criado (`/app/logs` já vem `chown 1000:1000` no Dockerfile) em vez de gravar direto em `/app`.
+    - `LOG_TO_FILE=false` desliga o handler de arquivo por completo; e se a criação do diretório ou
+      do handler falhar mesmo assim (permissão, disco, o que for), cai para console-only em vez de
+      derrubar o processo — console sempre funciona (é `stdout`, o que o `docker logs`/ACI capturam).
+    """
+    log_file: str | None = os.getenv("LOG_FILE_PATH", _DEFAULT_LOG_FILE)
+    if os.getenv("LOG_TO_FILE", "true").strip().lower() in ("0", "false", "no"):
+        log_file = None
+
+    if log_file:
+        try:
+            parent = os.path.dirname(log_file)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            logging.config.dictConfig(_montar_config(level, log_file))
+            return
+        except (OSError, ValueError):
+            # OSError: os.makedirs ou o open() do RotatingFileHandler sem permissão.
+            # ValueError: dictConfig (não incremental) embrulha a falha do handler em
+            # "Unable to configure handler 'file'" — é literalmente o N8 do G0.
+            pass  # cai para console-only abaixo — ver docstring (N8)
+
+    logging.config.dictConfig(_montar_config(level, None))
+    if log_file:
+        logging.getLogger(__name__).warning(
+            "Log em arquivo desabilitado (sem permissão de escrita em %r) — usando apenas console.",
+            log_file,
+        )
