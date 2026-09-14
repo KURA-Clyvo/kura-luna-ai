@@ -1,35 +1,52 @@
-"""Repository para INSERT/UPDATE na tabela NOTIFICACAO."""
+"""Repository para INSERT/UPDATE na tabela NOTIFICACAO (V9 + colunas V21/LU-02).
+
+LU-03: os 5 SQLs anteriores usavam colunas que nunca existiram
+(``ST_STATUS``, ``DT_ENVIADA``, ``DT_AGENDADA``, ``ID_EVENTO``) e omitiam
+``ID_CLINICA`` (NOT NULL desde a V9) — achado N1 (`ORA-00904`/`ORA-01400`,
+ver `lu-02-revisao.md` frente 5). Reescritos contra o schema real.
+"""
 from datetime import datetime
 
 import oracledb
 
 from src.db.connection import OracleConnectionPool
 from src.db.models.notificacao import Notificacao
+from src.utils.texto import truncar_por_bytes_utf8
 
+_TITULO_MAX_BYTES = 200
+_MENSAGEM_MAX_BYTES = 500
+_ERRO_MAX_BYTES = 500
+
+# ID_NOTIFICACAO tem DEFAULT SEQ_NOTIFICACAO.NEXTVAL desde a V12 — omitido da
+# lista de colunas para não sobrescrever a sequence.
 _SQL_INSERT = """
 INSERT INTO NOTIFICACAO (
-    ID_NOTIFICACAO, ID_TUTOR, ID_PET, ID_EVENTO,
-    DS_CANAL, DS_TIPO, DS_TITULO, DS_MENSAGEM,
-    DT_AGENDADA, ST_STATUS
+    ID_CLINICA, ID_TUTOR, ID_PET, DS_TITULO, DS_MENSAGEM,
+    DS_CANAL, DS_TIPO, ST_ENVIO
 ) VALUES (
-    SEQ_NOTIFICACAO.NEXTVAL, :id_tutor, :id_pet, :id_evento,
-    :ds_canal, :ds_tipo, :ds_titulo, :ds_mensagem,
-    :dt_agendada, :st_status
+    :id_clinica, :id_tutor, :id_pet, :ds_titulo, :ds_mensagem,
+    :ds_canal, :ds_tipo, :st_status
 ) RETURNING ID_NOTIFICACAO INTO :out_id
 """
 
 _SQL_MARK_SENT = """
 UPDATE NOTIFICACAO
-   SET ST_STATUS = 'ENVIADA', DT_ENVIADA = :dt_enviada
+   SET ST_ENVIO = 'ENVIADA', DT_ENVIO = :dt_enviada
  WHERE ID_NOTIFICACAO = :id_notificacao
 """
 
 _SQL_MARK_FAIL = """
 UPDATE NOTIFICACAO
-   SET ST_STATUS = 'FALHA', DS_ERRO_ENVIO = :ds_erro
+   SET ST_ENVIO = 'FALHA', DS_ERRO_ENVIO = :ds_erro
  WHERE ID_NOTIFICACAO = :id_notificacao
 """
 
+# Idempotência (N1c): o intervalo usa NUMTODSINTERVAL com bind NUMÉRICO, não
+# um bind dentro de literal de INTERVAL (a versão antiga, `INTERVAL ':horas'
+# HOUR`, nunca substituía `:horas` — ficava um literal de texto inválido,
+# ORA-01867). Chave de idempotência inclui ID_TUTOR (a view faz fan-out por
+# tutor — sem ID_TUTOR o 2º tutor de um pet compartilhado seria contado como
+# já enviado, ver lu-03-brief.md).
 _SQL_EXISTS = """
 SELECT COUNT(*)
   FROM NOTIFICACAO
@@ -37,19 +54,9 @@ SELECT COUNT(*)
    AND ID_PET     = :id_pet
    AND DS_TIPO    = 'LEMBRETE_VACINA'
    AND DS_TITULO  LIKE :titulo_like
-   AND ST_STATUS  IN ('PENDENTE', 'ENVIADA')
-   AND DT_AGENDADA >= (SYSTIMESTAMP - INTERVAL ':horas' HOUR)
+   AND ST_ENVIO   IN ('PENDENTE', 'ENVIADA')
+   AND DT_CRIACAO >= SYSTIMESTAMP - NUMTODSINTERVAL(:horas, 'HOUR')
 """
-
-_SQL_EXISTS_SAFE = (
-    "SELECT COUNT(*) FROM NOTIFICACAO"
-    " WHERE ID_TUTOR = :id_tutor"
-    "   AND ID_PET   = :id_pet"
-    "   AND DS_TIPO  = 'LEMBRETE_VACINA'"
-    "   AND DS_TITULO LIKE :titulo_like"
-    "   AND ST_STATUS IN ('PENDENTE', 'ENVIADA')"
-    "   AND DT_AGENDADA >= SYSTIMESTAMP - :horas / 24"
-)
 
 
 class NotificacaoRepository:
@@ -59,22 +66,28 @@ class NotificacaoRepository:
         self._pool = pool
 
     def criar(self, notif: Notificacao) -> int:
-        """Insere uma nova notificação e retorna o ID gerado pela sequence."""
+        """Insere uma nova notificação e retorna o ID gerado pela sequence.
+
+        ``DS_TITULO``/``DS_MENSAGEM`` são truncados por BYTES UTF-8 (colunas
+        Oracle dimensionadas em bytes) sem partir caractere multibyte.
+        """
+        ds_titulo = truncar_por_bytes_utf8(notif.ds_titulo, _TITULO_MAX_BYTES)
+        ds_mensagem = truncar_por_bytes_utf8(notif.ds_mensagem, _MENSAGEM_MAX_BYTES)
+
         with self._pool.get_connection() as conn:
             with conn.cursor() as cursor:
                 out_id = cursor.var(oracledb.NUMBER)
                 cursor.execute(
                     _SQL_INSERT,
                     {
+                        "id_clinica": notif.id_clinica,
                         "id_tutor": notif.id_tutor,
                         "id_pet": notif.id_pet,
-                        "id_evento": notif.id_evento,
                         "ds_canal": notif.ds_canal,
                         "ds_tipo": notif.ds_tipo,
-                        "ds_titulo": notif.ds_titulo,
-                        "ds_mensagem": notif.ds_mensagem,
-                        "dt_agendada": notif.dt_agendada,
-                        "st_status": notif.st_status,
+                        "ds_titulo": ds_titulo,
+                        "ds_mensagem": ds_mensagem,
+                        "st_status": notif.st_envio,
                         "out_id": out_id,
                     },
                 )
@@ -92,12 +105,15 @@ class NotificacaoRepository:
                 conn.commit()
 
     def marcar_falha(self, id_notificacao: int, msg_erro: str) -> None:
-        """Atualiza status para FALHA e registra a mensagem de erro."""
+        """Atualiza status para FALHA e registra a mensagem de erro (já sanitizada pelo chamador)."""
         with self._pool.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     _SQL_MARK_FAIL,
-                    {"ds_erro": msg_erro[:500], "id_notificacao": id_notificacao},
+                    {
+                        "ds_erro": truncar_por_bytes_utf8(msg_erro, _ERRO_MAX_BYTES),
+                        "id_notificacao": id_notificacao,
+                    },
                 )
                 conn.commit()
 
@@ -112,7 +128,7 @@ class NotificacaoRepository:
         with self._pool.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    _SQL_EXISTS_SAFE,
+                    _SQL_EXISTS,
                     {
                         "id_tutor": id_tutor,
                         "id_pet": id_pet,

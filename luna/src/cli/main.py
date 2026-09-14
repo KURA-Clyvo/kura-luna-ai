@@ -80,6 +80,7 @@ def run_job() -> None:
         typer.echo(
             f"Concluído — total: {resumo.total} | enviadas: {resumo.enviadas}"
             f" | falhas: {resumo.falhas} | já enviadas: {resumo.ja_enviadas}"
+            f" | sem consentimento: {resumo.sem_consentimento}"
         )
     except Exception as exc:
         logger.exception("Erro fatal em run-job")

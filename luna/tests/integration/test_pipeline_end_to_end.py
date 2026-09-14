@@ -23,6 +23,12 @@ from src.services.notification_service import LembreteVacinaService
 # ---- helpers ------------------------------------------------------------
 
 
+_COLUNAS_VW_VACINAS = [
+    "ID_PET", "NM_PET", "ID_TUTOR", "NM_TUTOR", "DS_WHATSAPP", "NM_VACINA",
+    "DT_PROXIMA_DOSE", "DIAS_RESTANTES", "NM_CLINICA", "ID_CLINICA",
+]
+
+
 def _vacina_row(
     id_pet: int,
     nm_pet: str,
@@ -31,8 +37,12 @@ def _vacina_row(
     whatsapp: str,
     nm_vacina: str,
     dias: int,
+    id_clinica: int = 900,
 ) -> tuple:
-    return (id_pet, nm_pet, id_tutor, nm_tutor, whatsapp, nm_vacina, date(2026, 6, 1), dias, "Clínica Kura")
+    return (
+        id_pet, nm_pet, id_tutor, nm_tutor, whatsapp, nm_vacina,
+        date(2026, 6, 1), dias, "Clínica Kura", id_clinica,
+    )
 
 
 def _make_var(id_val: int) -> MagicMock:
@@ -48,6 +58,7 @@ def _make_var(id_val: int) -> MagicMock:
 def mock_cursor() -> MagicMock:
     """Cursor Oracle pré-configurado para o cenário de 3 vacinas."""
     cursor = MagicMock()
+    cursor.description = [(nome,) for nome in _COLUNAS_VW_VACINAS]
 
     # 1 × listar_vencendo_em → fetchall → 3 vacinas
     cursor.fetchall.return_value = [
@@ -56,8 +67,9 @@ def mock_cursor() -> MagicMock:
         _vacina_row(3, "Thor", 30, "Pedro", "11987650003", "Gripe",        1),
     ]
 
+    # 1 × contar_sem_consentimento → fetchone → (0,) = ninguém sem consentimento
     # 3 × existe_pendente_para_vacina → fetchone → (0,) = nenhuma pendente
-    cursor.fetchone.side_effect = [(0,), (0,), (0,)]
+    cursor.fetchone.side_effect = [(0,), (0,), (0,), (0,)]
 
     # 3 × criar → cursor.var(NUMBER) → IDs sequenciais
     cursor.var.side_effect = [_make_var(101), _make_var(102), _make_var(103)]
@@ -156,11 +168,11 @@ def test_marcar_enviada_chamado_2_vezes(e2e) -> None:
     service, mock_cur, _ = e2e
     service.executar()
 
-    # _SQL_MARK_SENT contém "ST_STATUS = 'ENVIADA'" (com =)
-    # _SQL_EXISTS_SAFE contém "ST_STATUS IN ('PENDENTE', 'ENVIADA')" — não casa com esse padrão
+    # _SQL_MARK_SENT contém "ST_ENVIO = 'ENVIADA'" (com =)
+    # _SQL_EXISTS contém "ST_ENVIO   IN ('PENDENTE', 'ENVIADA')" — não casa com esse padrão
     enviada_calls = [
         c for c in mock_cur.execute.call_args_list
-        if "ST_STATUS = 'ENVIADA'" in str(c)
+        if "ST_ENVIO = 'ENVIADA'" in str(c)
     ]
     assert len(enviada_calls) == 2
 
@@ -171,7 +183,7 @@ def test_marcar_falha_chamado_1_vez(e2e) -> None:
 
     falha_calls = [
         c for c in mock_cur.execute.call_args_list
-        if "ST_STATUS = 'FALHA'" in str(c)
+        if "ST_ENVIO = 'FALHA'" in str(c)
     ]
     assert len(falha_calls) == 1
 
@@ -188,13 +200,17 @@ def test_log_erro_inserido_para_falha_twilio(e2e) -> None:
 
 
 def test_notificacoes_criadas_para_todos_os_itens(e2e) -> None:
-    """INSERT em NOTIFICACAO deve ocorrer 3 vezes (uma por vacina)."""
+    """INSERT em NOTIFICACAO deve ocorrer 3 vezes (uma por vacina).
+
+    ID_NOTIFICACAO tem DEFAULT SEQ_NOTIFICACAO.NEXTVAL desde a V12 -- o
+    INSERT (LU-03) omite a coluna em vez de nomear a sequence, então o
+    detector aqui é o texto do INSERT, não mais "SEQ_NOTIFICACAO"."""
     service, mock_cur, _ = e2e
     service.executar()
 
     insert_calls = [
         c for c in mock_cur.execute.call_args_list
-        if "SEQ_NOTIFICACAO" in str(c)
+        if "INSERT INTO NOTIFICACAO" in str(c)
     ]
     assert len(insert_calls) == 3
 

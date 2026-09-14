@@ -19,11 +19,13 @@ class LembreteVacinaJob:
         logger.info("LembreteVacinaJob: iniciando execução")
         resumo = self._service.executar()
         logger.info(
-            "LembreteVacinaJob concluído — total=%d enviadas=%d falhas=%d ja_enviadas=%d",
+            "LembreteVacinaJob concluído — total=%d enviadas=%d falhas=%d"
+            " ja_enviadas=%d sem_consentimento=%d",
             resumo.total,
             resumo.enviadas,
             resumo.falhas,
             resumo.ja_enviadas,
+            resumo.sem_consentimento,
         )
 
     def iniciar_scheduler(self, hora: int = 8, minuto: int = 0) -> None:
