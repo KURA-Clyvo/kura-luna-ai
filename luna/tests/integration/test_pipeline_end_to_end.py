@@ -46,8 +46,11 @@ def _vacina_row(
 
 
 def _make_var(id_val: int) -> MagicMock:
+    """oracledb: bind de RETURNING INTO devolve LISTA em getvalue() (achado
+    real F6/LU-03 -- `int(out_id.getvalue())` explodia com TypeError contra
+    Oracle real; `notificacao_repo.criar` agora le `getvalue()[0]`)."""
     var = MagicMock()
-    var.getvalue.return_value = id_val
+    var.getvalue.return_value = [id_val]
     return var
 
 

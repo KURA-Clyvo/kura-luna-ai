@@ -41,7 +41,15 @@ def _sample_notif(**kwargs) -> Notificacao:  # type: ignore[no-untyped-def]
 @patch("src.db.repositories.notificacao_repo.oracledb")
 def test_criar_retorna_id_gerado(mock_oracledb: MagicMock) -> None:
     out_var = MagicMock()
-    out_var.getvalue.return_value = 99.0
+    # oracledb: RETURNING INTO devolve LISTA em getvalue() -- mesmo para um
+    # INSERT de 1 linha (o driver não sabe a priori quantas linhas o DML vai
+    # afetar). Mordida real: `getvalue.return_value = 99.0` (escalar, forma
+    # antiga deste teste) passava no mock e MESMO ASSIM `int(...)` explodia
+    # contra o Oracle real do compose com `TypeError: ... not 'list'` -- só
+    # apareceu na prova de mordida contra Oracle de verdade (F6), nunca no
+    # mock -- `test_criar_le_getvalue_na_posicao_zero_da_lista` abaixo
+    # documenta o achado.
+    out_var.getvalue.return_value = [99.0]
     mock_oracledb.NUMBER = MagicMock()
 
     mock_cursor = MagicMock()
@@ -56,11 +64,33 @@ def test_criar_retorna_id_gerado(mock_oracledb: MagicMock) -> None:
 
 
 @patch("src.db.repositories.notificacao_repo.oracledb")
+def test_criar_le_getvalue_na_posicao_zero_da_lista(mock_oracledb: MagicMock) -> None:
+    """Achado real contra Oracle do compose (F6, LU-03): `cursor.var(NUMBER)`
+    ligado a RETURNING INTO devolve LISTA em `getvalue()`, não escalar --
+    `int(out_id.getvalue())` levantava `TypeError: ... not 'list'` na
+    primeira execução real de `run-job`. O mock antigo (`getvalue.
+    return_value = 99.0`) nunca provava isso porque um MagicMock devolve
+    exatamente o que foi configurado, nunca a semântica do driver real."""
+    out_var = MagicMock()
+    out_var.getvalue.return_value = [123.0]
+    mock_oracledb.NUMBER = MagicMock()
+
+    mock_cursor = MagicMock()
+    mock_cursor.var.return_value = out_var
+
+    pool = _make_pool(mock_cursor)
+    repo = NotificacaoRepository(pool=pool)
+    result = repo.criar(_sample_notif())
+
+    assert result == 123
+
+
+@patch("src.db.repositories.notificacao_repo.oracledb")
 def test_criar_envia_id_clinica_no_bind(mock_oracledb: MagicMock) -> None:
     """N1 (achado LU-01/LU-02): ID_CLINICA é NOT NULL desde a V9 -- o INSERT
     anterior nunca a enviava e falharia com ORA-01400."""
     out_var = MagicMock()
-    out_var.getvalue.return_value = 1.0
+    out_var.getvalue.return_value = [1.0]
     mock_oracledb.NUMBER = MagicMock()
 
     mock_cursor = MagicMock()
@@ -80,7 +110,7 @@ def test_criar_trunca_titulo_e_mensagem_por_bytes_utf8(mock_oracledb: MagicMock)
     BYTES. Usa acentuação (2 bytes/caractere em UTF-8) perto do limite para
     provar que o corte não conta caractere, e não parte multibyte."""
     out_var = MagicMock()
-    out_var.getvalue.return_value = 1.0
+    out_var.getvalue.return_value = [1.0]
     mock_oracledb.NUMBER = MagicMock()
 
     mock_cursor = MagicMock()

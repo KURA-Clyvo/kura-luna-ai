@@ -92,7 +92,15 @@ class NotificacaoRepository:
                     },
                 )
                 conn.commit()
-                return int(out_id.getvalue())
+                # oracledb: uma variavel de bind ligada a RETURNING INTO
+                # devolve LISTA em getvalue() (o DML pode, em geral, afetar
+                # mais de uma linha) -- mesmo para este INSERT de 1 linha.
+                # Achado real (LU-03, run-job contra Oracle do compose):
+                # `int(out_id.getvalue())` levantava `TypeError: ... not
+                # 'list'`; o teste unitario antigo nunca pegou porque o mock
+                # de cursor.var() sempre devolvia um escalar (`getvalue.
+                # return_value = 99.0`), nunca a semantica real do driver.
+                return int(out_id.getvalue()[0])
 
     def marcar_enviada(self, id_notificacao: int, dt_enviada: datetime) -> None:
         """Atualiza status para ENVIADA e registra timestamp de envio."""
