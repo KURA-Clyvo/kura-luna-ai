@@ -7,6 +7,7 @@ import pytest
 from src.messaging.twilio_inbound import InboundMessage
 from src.services.inbound_message_service import (
     _RESPOSTA_ALTA,
+    _RESPOSTA_ALTA_TUTOR_DESCONHECIDO,
     _RESPOSTA_BAIXA,
     _RESPOSTA_FALLBACK,
     _RESPOSTA_MEDIA,
@@ -209,6 +210,65 @@ async def test_timeout_em_busca_envia_fallback(
 
     assert result.resposta_enviada == _RESPOSTA_FALLBACK
     log_repo.registrar.assert_called()
+
+
+# ── LU-07 fix wave 1, item A6: ALTA com .NET fora do ar ────────────────────────
+# Achado da G2 (lu-07-revisao.md, Frente 7): a urgência já classificada era
+# descartada quando `buscar_tutor_por_telefone`/`registrar_interacao` falhavam
+# depois da classificação — o tutor recebia o fallback genérico mesmo numa
+# ALTA. Regra 6 do backlog: em ALTA, sempre orienta atendimento imediato.
+
+async def test_a6_timeout_na_busca_com_alta_envia_resposta_de_emergencia(
+    service: InboundMessageService,
+    kura_client: AsyncMock,
+    triage_engine: MagicMock,
+    log_repo: MagicMock,
+) -> None:
+    from src.integration.exceptions import KuraTimeoutError
+
+    triage_result = MagicMock()
+    triage_result.urgencia = "ALTA"
+    triage_result.sintomas_detectados = ["convulsão"]
+    triage_result.score = 10
+    triage_result.regras_versao = "1.1"
+    triage_engine.classificar.return_value = triage_result
+
+    kura_client.buscar_tutor_por_telefone.side_effect = KuraTimeoutError()
+
+    with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()) as mock_thread:
+        result = await service.processar(_make_msg("socorro meu cachorro está convulsionando"))
+
+    assert result.urgencia == "ALTA"
+    assert result.resposta_enviada == _RESPOSTA_ALTA_TUTOR_DESCONHECIDO
+    assert result.resposta_enviada != _RESPOSTA_FALLBACK
+    mock_thread.assert_awaited_once()
+    log_repo.registrar.assert_called()
+
+
+async def test_a6_falha_em_registrar_interacao_com_alta_envia_resposta_de_emergencia(
+    service: InboundMessageService,
+    kura_client: AsyncMock,
+    triage_engine: MagicMock,
+) -> None:
+    """Mesma classe do teste acima, mas a falha é DEPOIS de já ter tutor
+    identificado (buscar_tutor_por_telefone OK, registrar_interacao falha) —
+    prova que a urgência sobrevive a qualquer ponto de falha de rede após a
+    classificação, não só ao primeiro."""
+    triage_result = MagicMock()
+    triage_result.urgencia = "ALTA"
+    triage_result.sintomas_detectados = ["convulsão"]
+    triage_result.score = 10
+    triage_result.regras_versao = "1.1"
+    triage_engine.classificar.return_value = triage_result
+
+    kura_client.buscar_tutor_por_telefone.return_value = _make_tutor()
+    kura_client.registrar_interacao.side_effect = RuntimeError("timeout no .NET")
+
+    with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+        result = await service.processar(_make_msg("convulsionando"))
+
+    assert result.urgencia == "ALTA"
+    assert result.resposta_enviada == _RESPOSTA_ALTA_TUTOR_DESCONHECIDO
 
 
 # ── LGPD — telefone nunca chega ao LOG_ERRO ───────────────────────────────────

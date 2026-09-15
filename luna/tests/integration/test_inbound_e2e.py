@@ -290,6 +290,51 @@ def test_cenario_net_fora_do_ar(
     assert "retornaremos" in mensagem.lower() or "recebemos" in mensagem.lower()
 
 
+# ── LU-07 fix wave 1, item A6: ALTA com .NET fora do ar ──────────────────────
+
+_FORM_NET_DOWN_ALTA = {
+    "From": "whatsapp:+5511999000005",
+    "Body": "socorro meu cachorro está convulsionando",
+    "MessageSid": "SM_down_alta_001",
+    "AccountSid": "ACtest",
+}
+
+
+@respx.mock
+def test_cenario_net_fora_do_ar_com_urgencia_alta(
+    e2e_client: TestClient,
+    mock_twilio_gateway,
+    mock_log_repo_e2e,
+) -> None:
+    """LU-07 fix wave 1 (A6) — achado da G2 (lu-07-revisao.md, Frente 7):
+    DADO API .NET fora do ar (timeout/erro na busca do tutor),
+    E a mensagem classifica como ALTA (convulsão),
+    QUANDO POST /webhook/twilio/whatsapp,
+    ENTÃO: TwiML 200 imediato, LOG_ERRO registrado (fail-safe, igual ao
+    cenário 3), MAS o Twilio recebe a resposta de EMERGÊNCIA — nunca o
+    fallback genérico ("retornaremos em breve") que omite orientação de
+    atendimento imediato. A classificação acontece antes da chamada de rede
+    (item 4 original); este teste prova que ela SOBREVIVE à falha de rede
+    que vem depois."""
+    respx.get(f"{_KURA_BASE}/api/v1/tutores/telefone/5511999000005").mock(
+        return_value=httpx.Response(503, text="Service Unavailable")
+    )
+
+    resp = e2e_client.post("/webhook/twilio/whatsapp", data=_FORM_NET_DOWN_ALTA)
+
+    assert resp.status_code == 200
+    assert "<Response>" in resp.text or resp.text == "<Response></Response>"
+
+    # Erro registrado no LOG_ERRO (fail-safe, igual ao cenário 3)
+    mock_log_repo_e2e.registrar.assert_called()
+
+    # Resposta de EMERGÊNCIA, NÃO o fallback genérico
+    mock_twilio_gateway.enviar_whatsapp.assert_called_once()
+    _, mensagem = mock_twilio_gateway.enviar_whatsapp.call_args[0]
+    assert "imediato" in mensagem.lower() or "pronto atendimento" in mensagem.lower()
+    assert "retornaremos" not in mensagem.lower() and "recebemos sua mensagem" not in mensagem.lower()
+
+
 # ── Tempo total < 3s ──────────────────────────────────────────────────────────
 
 @respx.mock

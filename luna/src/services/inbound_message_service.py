@@ -5,7 +5,7 @@ import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from src.ai.triage_engine import TriageEngine
+from src.ai.triage_engine import TriageEngine, TriageResult
 from src.db.repositories.log_erro_repo import LogErroRepository
 from src.integration.dtos import InteractionRequestDTO, TriageRequestDTO, TutorContextoDTO
 from src.integration.exceptions import KuraTimeoutError
@@ -71,8 +71,19 @@ class InboundMessageService:
 
     async def processar(self, msg: InboundMessage) -> ProcessamentoResult:
         """Processa mensagem inbound com fluxo resiliente completo."""
+        # LU-07 fix wave 1 (A6): `urgencia` fica FORA do try — classificamos
+        # antes de qualquer chamada de rede (item 4 original) e guardamos o
+        # resultado aqui em cima, para que o except abaixo saiba a urgência
+        # mesmo quando o `.NET` falha (timeout em buscar_tutor_por_telefone
+        # ou em registrar_interacao) DEPOIS da classificação. Sem isso, uma
+        # ALTA já calculada era descartada e o tutor recebia o fallback
+        # genérico — violação da regra 6 (§4 do backlog: em ALTA, sempre
+        # orienta atendimento imediato).
+        urgencia: str | None = None
         try:
-            return await self._processar_interno(msg)
+            triage_result = self._triage.classificar(msg.corpo)
+            urgencia = triage_result.urgencia
+            return await self._processar_interno(msg, triage_result)
         except Exception as exc:
             logger.exception("Erro inesperado em InboundMessageService.processar")
             LogErroRepository.from_exception(
@@ -84,14 +95,16 @@ class InboundMessageService:
                 # console do Twilio (ver src/web/routers/whatsapp.py).
                 parametros=f"message_sid={msg.message_sid}",
             )
-            return await self._enviar_fallback(msg)
+            return await self._enviar_fallback(msg, urgencia)
 
-    async def _processar_interno(self, msg: InboundMessage) -> ProcessamentoResult:
+    async def _processar_interno(
+        self, msg: InboundMessage, triage_result: TriageResult
+    ) -> ProcessamentoResult:
         # LU-07 item 4: classifica ANTES de saber se o tutor está
         # identificado — tutor não cadastrado também é triado (auditoria §3
         # do backlog). A resposta e o registro variam conforme `tutor`
         # abaixo, mas a urgência em si nunca depende de tutor existir.
-        triage_result = self._triage.classificar(msg.corpo)
+        # (classificação agora acontece em processar(), ver A6 acima)
         urgencia = triage_result.urgencia
 
         tutor = await self._kura.buscar_tutor_por_telefone(msg.numero_origem)
@@ -166,11 +179,24 @@ class InboundMessageService:
             return f"Recebemos a mensagem sobre o {pet_nome}. {base}"
         return base
 
-    async def _enviar_fallback(self, msg: InboundMessage) -> ProcessamentoResult:
-        """Envia resposta genérica ao tutor em caso de erro não recuperável."""
+    async def _enviar_fallback(
+        self, msg: InboundMessage, urgencia: str | None = None
+    ) -> ProcessamentoResult:
+        """Envia resposta genérica ao tutor em caso de erro não recuperável.
+
+        LU-07 fix wave 1 (A6): se a urgência já classificada (antes da falha
+        de rede) for ALTA, o fallback genérico NÃO é enviado — vai a resposta
+        de emergência sem nome de clínica (`_RESPOSTA_ALTA_TUTOR_DESCONHECIDO`,
+        mesmo texto do caminho "tutor não identificado", porque não sabemos
+        se o `.NET`/veterinário foi de fato notificado). Nunca omitimos
+        orientação de atendimento imediato numa ALTA.
+        """
+        resposta = (
+            _RESPOSTA_ALTA_TUTOR_DESCONHECIDO if urgencia == "ALTA" else _RESPOSTA_FALLBACK
+        )
         try:
             await asyncio.to_thread(
-                self._twilio.enviar_whatsapp, msg.numero_origem, _RESPOSTA_FALLBACK
+                self._twilio.enviar_whatsapp, msg.numero_origem, resposta
             )
         except Exception as exc:
             # LGPD: nunca logar o telefone do tutor. O SID do Twilio é um
@@ -179,6 +205,6 @@ class InboundMessageService:
             logger.error("Falha ao enviar fallback message_sid=%s: %s", msg.message_sid, exc)
         return ProcessamentoResult(
             id_interacao=None,
-            urgencia=None,
-            resposta_enviada=_RESPOSTA_FALLBACK,
+            urgencia=urgencia,
+            resposta_enviada=resposta,
         )
