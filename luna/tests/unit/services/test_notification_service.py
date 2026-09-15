@@ -14,17 +14,20 @@ def _vacina(
     nm_vacina: str = "V10",
     dias: int = 5,
     id_tutor: int = 10,
+    ds_whatsapp: str | None = "11999999999",
+    id_clinica: int = 900,
 ) -> VacinaVencendo:
     return VacinaVencendo(
         id_pet=id_pet,
         nm_pet="Rex",
         id_tutor=id_tutor,
         nm_tutor="João",
-        ds_whatsapp="11999999999",
+        ds_whatsapp=ds_whatsapp,
         nm_vacina=nm_vacina,
         dt_proxima_dose=date(2026, 6, 1),
         dias_restantes=dias,
         nm_clinica="Clyvo Vet",
+        id_clinica=id_clinica,
     )
 
 
@@ -33,11 +36,13 @@ def _make_service(
     ja_enviada: bool = False,
     twilio_side_effect: object = None,
     criar_side_effect: object = None,
+    sem_consentimento: int = 0,
 ) -> tuple[LembreteVacinaService, MagicMock, MagicMock, MagicMock, MagicMock]:
     if vacinas is None:
         vacinas = []
     vacina_repo = MagicMock()
     vacina_repo.listar_vencendo_em.return_value = vacinas
+    vacina_repo.contar_sem_consentimento.return_value = sem_consentimento
 
     notif_repo = MagicMock()
     notif_repo.existe_pendente_para_vacina.return_value = ja_enviada
@@ -168,6 +173,7 @@ def test_twilio_rest_exception_real_nao_vaza_telefone_em_notificacao() -> None:
 
     vacina_repo = MagicMock()
     vacina_repo.listar_vencendo_em.return_value = vacinas
+    vacina_repo.contar_sem_consentimento.return_value = 0
 
     notif_repo = MagicMock()
     notif_repo.existe_pendente_para_vacina.return_value = False
@@ -213,3 +219,78 @@ def test_twilio_rest_exception_real_nao_vaza_telefone_em_notificacao() -> None:
     stack_trace = log_kwargs.get("stack_trace") or ""
     assert numero not in stack_trace
     assert "not a valid phone number" not in stack_trace
+
+    # LU-03: DS_ERRO_ENVIO carrega tipo + código -- nunca a mensagem crua.
+    assert msg_erro == "MessagingError[21211]"
+
+
+# --- LU-03: sem_consentimento, DS_WHATSAPP nulo, LGPD no logger.exception ---
+
+def test_sem_consentimento_soma_ao_total_sem_gerar_linha_nem_chamar_twilio() -> None:
+    """D-L4: tutor sem consentimento LEMBRETES -- 0 linhas em NOTIFICACAO,
+    0 chamadas Twilio, mas contabilizado em `sem_consentimento` e em `total`."""
+    vacinas = [_vacina(id_pet=1)]
+    svc, vacina_repo, notif_repo, twilio, _ = _make_service(
+        vacinas=vacinas, sem_consentimento=2
+    )
+    notif_repo.existe_pendente_para_vacina.return_value = False
+
+    resumo = svc.executar()
+
+    assert resumo.sem_consentimento == 2
+    assert resumo.total == 1 + 2  # 1 elegível (enviada) + 2 sem consentimento
+    assert resumo.enviadas == 1
+    vacina_repo.contar_sem_consentimento.assert_called_once()
+
+
+def test_ds_whatsapp_nulo_e_pulado_contado_como_falha_nunca_enviado_como_none() -> None:
+    """Tutor consente (linha chegou até aqui) mas TUTOR.DS_WHATSAPP é nulo --
+    nunca deve chamar Twilio com "None" como destino."""
+    vacinas = [_vacina(id_pet=1, ds_whatsapp=None)]
+    svc, _, notif_repo, twilio, log_repo = _make_service(vacinas=vacinas)
+
+    resumo = svc.executar()
+
+    assert resumo.falhas == 1
+    assert resumo.enviadas == 0
+    twilio.enviar_whatsapp.assert_not_called()
+    notif_repo.criar.assert_not_called()
+    log_repo.registrar.assert_called_once()
+    # Nunca "None" como texto no que é logado.
+    log_kwargs = log_repo.registrar.call_args[1]
+    assert "None" not in log_kwargs["mensagem"]
+    assert "WhatsApp" in log_kwargs["mensagem"]
+
+
+def test_messaging_error_sem_codigo_usa_so_tipo() -> None:
+    """MessagingError construída sem `codigo` (ex.: dublê de teste antigo)
+    ainda produz um msg_erro seguro -- só o nome do tipo, sem levantar."""
+    vacinas = [_vacina(id_pet=1)]
+    svc, _, notif_repo, twilio, _ = _make_service(vacinas=vacinas)
+    notif_repo.existe_pendente_para_vacina.return_value = False
+    twilio.enviar_whatsapp.side_effect = MessagingError("timeout")
+
+    svc.executar()
+
+    msg_erro = notif_repo.marcar_falha.call_args[1]["msg_erro"]
+    assert msg_erro == "MessagingError"
+    assert "timeout" not in msg_erro
+
+
+def test_erro_inesperado_nao_loga_telefone_no_caplog(caplog: pytest.LogCaptureFixture) -> None:
+    """Achado LU-03 (anchor :106 `logger.exception`): uma exceção inesperada
+    cuja mensagem contém o telefone do tutor não pode aparecer no log da
+    aplicação -- `logger.exception`/`exc_info=True` reimprimiria a cadeia
+    completa. Prova de mordida: com `logger.exception(...)` (código antigo),
+    este teste falharia porque o traceback anexado incluiria a mensagem da
+    exceção, telefone inclusive."""
+    numero = "11999999999"
+    vacinas = [_vacina(id_pet=1, ds_whatsapp=numero)]
+    svc, _, notif_repo, _twilio, log_repo = _make_service(vacinas=vacinas)
+    notif_repo.existe_pendente_para_vacina.side_effect = Exception(f"boom {numero}")
+
+    with caplog.at_level("ERROR"):
+        resumo = svc.executar()
+
+    assert resumo.falhas == 1
+    assert numero not in caplog.text
