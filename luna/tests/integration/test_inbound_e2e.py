@@ -142,10 +142,67 @@ def test_cenario_tutor_desconhecido(
     # `processar()`, que é o único chamador de `LogErroRepository` nesta rota.
     mock_log_repo_e2e.registrar.assert_not_called()
 
-    # Twilio recebe fallback educado
+    # LU-07 item 4: mensagem é "boa tarde queria uma informação" → BAIXA
+    # (categoria "duvida"). Sem tutor identificado, a resposta ainda é por
+    # urgência (não mais fallback genérico fixo) — texto de BAIXA.
+    assert b"BAIXA" in interaction_body
+
+    # Twilio recebe a resposta de BAIXA urgência
     mock_twilio_gateway.enviar_whatsapp.assert_called_once()
     _, mensagem = mock_twilio_gateway.enviar_whatsapp.call_args[0]
-    assert "retornaremos" in mensagem.lower() or "recebemos" in mensagem.lower()
+    assert "respondemos" in mensagem.lower() or "horário comercial" in mensagem.lower()
+
+
+_FORM_ALTA_TUTOR_DESCONHECIDO = {
+    "From": "whatsapp:+5511999000004",
+    "Body": "socorro meu cachorro está convulsionando",
+    "MessageSid": "SM_alta_desc_001",
+    "AccountSid": "ACtest",
+}
+
+
+@respx.mock
+def test_cenario_alta_urgencia_tutor_desconhecido(
+    e2e_client: TestClient,
+    mock_twilio_gateway,
+    mock_log_repo_e2e,
+) -> None:
+    """LU-07 item 4 — DADO tutor NÃO cadastrado (404) enviando mensagem de
+    convulsão (ALTA), QUANDO POST /webhook/twilio/whatsapp, ENTÃO: interação
+    registrada com id_tutor=null e urgência ALTA em ds_metadados, SEM chamada
+    a /triage (sem tutor não há FK válida em TRIAGEM_LUNA), e Twilio recebe a
+    resposta de emergência GENÉRICA — sem nome de clínica, não sabemos qual é.
+    """
+    respx.get(f"{_KURA_BASE}/api/v1/tutores/telefone/5511999000004").mock(
+        return_value=httpx.Response(404)
+    )
+    interaction_route = respx.post(f"{_KURA_BASE}/api/v1/luna/interactions").mock(
+        return_value=httpx.Response(201, json={"id_interacao": 102})
+    )
+    triage_route = respx.post(f"{_KURA_BASE}/api/v1/luna/triage").mock(
+        return_value=httpx.Response(201, json={"id_triagem": 998})
+    )
+
+    resp = e2e_client.post("/webhook/twilio/whatsapp", data=_FORM_ALTA_TUTOR_DESCONHECIDO)
+
+    assert resp.status_code == 200
+
+    assert interaction_route.called
+    interaction_body = interaction_route.calls[0].request.read()
+    assert b'"id_tutor": null' in interaction_body or b'"id_tutor":null' in interaction_body
+    assert b"ALTA" in interaction_body
+    assert b"1.1" in interaction_body
+
+    # Sem tutor, sem FK valida em TRIAGEM_LUNA -> /triage nunca chamado
+    assert not triage_route.called
+
+    mock_log_repo_e2e.registrar.assert_not_called()
+
+    # Resposta de emergencia GENERICA, sem nome de clinica
+    mock_twilio_gateway.enviar_whatsapp.assert_called_once()
+    _, mensagem = mock_twilio_gateway.enviar_whatsapp.call_args[0]
+    assert "imediato" in mensagem.lower() or "pronto atendimento" in mensagem.lower()
+    assert "clínica" not in mensagem.lower() and "clinica" not in mensagem.lower()
 
 
 @respx.mock

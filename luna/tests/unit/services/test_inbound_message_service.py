@@ -7,6 +7,7 @@ import pytest
 from src.messaging.twilio_inbound import InboundMessage
 from src.services.inbound_message_service import (
     _RESPOSTA_ALTA,
+    _RESPOSTA_BAIXA,
     _RESPOSTA_FALLBACK,
     _RESPOSTA_MEDIA,
     InboundMessageService,
@@ -75,6 +76,7 @@ async def test_tutor_encontrado_alta_envia_resposta_urgente(
     triage_result.urgencia = "ALTA"
     triage_result.sintomas_detectados = ["convulsão"]
     triage_result.score = 10
+    triage_result.regras_versao = "1.1"
     triage_engine.classificar.return_value = triage_result
 
     with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()) as mock_thread:
@@ -100,12 +102,18 @@ async def test_tutor_encontrado_media_envia_resposta_media(
     triage_result.urgencia = "MEDIA"
     triage_result.sintomas_detectados = ["vomitando"]
     triage_result.score = 3
+    triage_result.regras_versao = "1.1"
     triage_engine.classificar.return_value = triage_result
 
     with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
         result = await service.processar(_make_msg("vomitando"))
 
     assert result.resposta_enviada == _RESPOSTA_MEDIA
+    # LU-07: sem regras_versao no mock, a construção do TriageRequestDTO
+    # levantava ValidationError silenciosamente engolida pelo try/except de
+    # telemetria (regra 6) — o teste passava sem provar que a triagem foi
+    # de fato registrada. Trava isso agora.
+    kura_client.registrar_triagem.assert_awaited_once()
 
 
 # ── tutor desconhecido ────────────────────────────────────────────────────────
@@ -119,14 +127,25 @@ async def test_tutor_nao_encontrado_registra_interacao_sem_tutor(
     kura_client.buscar_tutor_por_telefone.return_value = None
     kura_client.registrar_interacao.return_value = 5
 
+    triage_result = MagicMock()
+    triage_result.urgencia = "BAIXA"
+    triage_result.sintomas_detectados = []
+    triage_result.score = 0
+    triage_result.regras_versao = "1.1"
+    triage_engine.classificar.return_value = triage_result
+
     with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
         result = await service.processar(_make_msg("oi"))
 
     call_args = kura_client.registrar_interacao.call_args[0][0]
     assert call_args.id_tutor is None
-    triage_engine.classificar.assert_not_called()
+    # LU-07 item 4: classifica ANTES de saber se o tutor está identificado —
+    # tutor desconhecido também é triado. A urgência não tem FK válida em
+    # TRIAGEM_LUNA sem tutor, então vai em ds_metadados da própria interação.
+    triage_engine.classificar.assert_called_once_with("oi")
+    assert call_args.ds_metadados == {"urgencia": "BAIXA", "regras_versao": "1.1"}
     kura_client.registrar_triagem.assert_not_awaited()
-    assert result.resposta_enviada == _RESPOSTA_FALLBACK
+    assert result.resposta_enviada == _RESPOSTA_BAIXA
     # TASK-78: desde que registrar_interacao() completa sem levantar (o
     # comportamento do KuraClient real desde a TASK-77 do .NET, que passou a
     # aceitar id_tutor=null com 201 em vez de 422), o `except Exception`
@@ -136,6 +155,41 @@ async def test_tutor_nao_encontrado_registra_interacao_sem_tutor(
     # HTTP->exceção do KuraClient real); a prova ponta a ponta de que o
     # cliente real de fato não levanta mais está em
     # tests/integration/test_inbound_e2e.py::test_cenario_tutor_desconhecido.
+    log_repo.registrar.assert_not_called()
+
+
+async def test_tutor_nao_encontrado_alta_envia_resposta_emergencia_generica(
+    service: InboundMessageService,
+    kura_client: AsyncMock,
+    triage_engine: MagicMock,
+    twilio_gateway: MagicMock,
+    log_repo: MagicMock,
+) -> None:
+    """LU-07 item 4 — tutor desconhecido + sintoma ALTA: resposta de
+    emergência GENÉRICA (sem nome de clínica, não sabemos qual é),
+    registrar_triagem NUNCA chamado (sem FK válida), urgência gravada em
+    ds_metadados da interação."""
+    kura_client.buscar_tutor_por_telefone.return_value = None
+    kura_client.registrar_interacao.return_value = 9
+
+    triage_result = MagicMock()
+    triage_result.urgencia = "ALTA"
+    triage_result.sintomas_detectados = ["convulsão"]
+    triage_result.score = 10
+    triage_result.regras_versao = "1.1"
+    triage_engine.classificar.return_value = triage_result
+
+    with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()) as mock_thread:
+        result = await service.processar(_make_msg("meu cachorro está convulsionando"))
+
+    call_args = kura_client.registrar_interacao.call_args[0][0]
+    assert call_args.id_tutor is None
+    assert call_args.ds_metadados == {"urgencia": "ALTA", "regras_versao": "1.1"}
+    kura_client.registrar_triagem.assert_not_awaited()
+    assert result.urgencia == "ALTA"
+    assert "imediato" in result.resposta_enviada.lower() or "pronto atendimento" in result.resposta_enviada.lower()
+    assert "clínica" not in result.resposta_enviada.lower() and "clinica" not in result.resposta_enviada.lower()
+    mock_thread.assert_awaited_once()
     log_repo.registrar.assert_not_called()
 
 
