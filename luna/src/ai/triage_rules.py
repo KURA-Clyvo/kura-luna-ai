@@ -130,8 +130,11 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "lingua roxa",
         "lingua azulada",
         "lingua palida",
+        # LU-07 fix wave 2, item 2: "branca" além de roxa/azulada/pálida.
+        "lingua branca",
         "gengiva roxa",
         "gengiva azulada",
+        "gengiva branca",
         "gengiva palida",
     ],
     "trauma": [
