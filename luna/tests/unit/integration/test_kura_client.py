@@ -44,6 +44,7 @@ def _triage_dto() -> TriageRequestDTO:
         ds_urgencia="MEDIA",
         nr_score=3,
         ds_recomendacao="Acompanhar",
+        regras_versao="1.1",
     )
 
 

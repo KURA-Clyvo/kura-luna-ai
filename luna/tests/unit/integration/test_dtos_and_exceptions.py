@@ -105,6 +105,7 @@ class TestTriageRequestDTO:
                 ds_urgencia=nivel,  # type: ignore[arg-type]
                 nr_score=3,
                 ds_recomendacao="ok",
+                regras_versao="1.1",
             )
             assert dto.ds_urgencia == nivel
 
