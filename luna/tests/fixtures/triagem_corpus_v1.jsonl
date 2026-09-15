@@ -1,0 +1,85 @@
+{"mensagem": "socorro, meu cachorro está convulsionando muito forte", "urgencia_esperada": "ALTA", "justificativa": "convulsão explícita", "classe": "direto"}
+{"mensagem": "gente socorro minha gata teve uma convulsão agora", "urgencia_esperada": "ALTA", "justificativa": "convulsão, espécie gata", "classe": "especie"}
+{"mensagem": "meu coelho não para de tremer, tremendo muito, socorro", "urgencia_esperada": "ALTA", "justificativa": "tremendo muito (convulsão), espécie coelho", "classe": "especie"}
+{"mensagem": "ele desmaiou do nada, tô desesperada", "urgencia_esperada": "ALTA", "justificativa": "desmaiou; abreviação informal 'tô'", "classe": "abreviacao"}
+{"mensagem": "minha cadela perdeu a consciência de repente", "urgencia_esperada": "ALTA", "justificativa": "perdeu a consciência", "classe": "direto"}
+{"mensagem": "vc pode me ajudar, meu gato desmaiou aqui em casa 😢", "urgencia_esperada": "ALTA", "justificativa": "desmaiou; abreviação 'vc' + emoji", "classe": "abreviacao_emoji"}
+{"mensagem": "meu cachorro está sangrando muito da pata", "urgencia_esperada": "ALTA", "justificativa": "sangrando", "classe": "direto"}
+{"mensagem": "socorro, ferida aberta enorme na perna do meu cão", "urgencia_esperada": "ALTA", "justificativa": "ferida aberta", "classe": "direto"}
+{"mensagem": "meu passarinho caiu e tá com hemorragia", "urgencia_esperada": "ALTA", "justificativa": "hemorragia, espécie pássaro", "classe": "especie"}
+{"mensagem": "PFV me ajuda, meu cachorro comeu produto de limpeza", "urgencia_esperada": "ALTA", "justificativa": "comeu produto; abreviação 'PFV'", "classe": "abreviacao"}
+{"mensagem": "meu gato ingeriu produto químico, o que eu faço", "urgencia_esperada": "ALTA", "justificativa": "ingeriu produto", "classe": "direto"}
+{"mensagem": "acho que meu cão comeu raticida, help", "urgencia_esperada": "ALTA", "justificativa": "raticida; abreviação 'help'", "classe": "abreviacao"}
+{"mensagem": "meu hamster parece intoxicado, comeu algo estranho", "urgencia_esperada": "ALTA", "justificativa": "intoxicado, espécie hamster", "classe": "especie"}
+{"mensagem": "minha cadela tá com dificuldade respirar, muito ofegante", "urgencia_esperada": "ALTA", "justificativa": "dificuldade respirar + ofegante; concordância informal (erro comum de digitação/fala)", "classe": "typo"}
+{"mensagem": "meu gato tá sufocando, muito mal", "urgencia_esperada": "ALTA", "justificativa": "sufocando", "classe": "direto"}
+{"mensagem": "ele engasgou com a comida e não consegue respirar direito", "urgencia_esperada": "ALTA", "justificativa": "engasgou (dispneia)", "classe": "direto"}
+{"mensagem": "meu cachorro foi atropelado agora na rua", "urgencia_esperada": "ALTA", "justificativa": "atropelado", "classe": "direto"}
+{"mensagem": "gato atropelamento, precisamos de ajuda urgente", "urgencia_esperada": "ALTA", "justificativa": "atropelamento", "classe": "direto"}
+{"mensagem": "meu cão caiu de altura do telhado", "urgencia_esperada": "ALTA", "justificativa": "caiu de altura", "classe": "direto"}
+{"mensagem": "ele bateu a cabeça forte no chão", "urgencia_esperada": "ALTA", "justificativa": "bateu a cabeça", "classe": "direto"}
+{"mensagem": "acho que meu gato quebrou a pata, ele está com fratura", "urgencia_esperada": "ALTA", "justificativa": "fratura", "classe": "direto"}
+{"mensagem": "meu cachorro tá com osso quebrado, vi o osso pra fora", "urgencia_esperada": "ALTA", "justificativa": "osso quebrado", "classe": "direto"}
+{"mensagem": "tive um acidente com meu carro e o cachorro se machucou muito", "urgencia_esperada": "ALTA", "justificativa": "acidente (trauma)", "classe": "direto"}
+{"mensagem": "meu coelho não respira direito, super mal", "urgencia_esperada": "ALTA", "justificativa": "'não respira' já É a keyword de estado grave — item 2: imune à negação por desenho", "classe": "estado_grave_negado"}
+{"mensagem": "ela tá com respiração difícil, muito preocupada", "urgencia_esperada": "ALTA", "justificativa": "respiração difícil", "classe": "direto"}
+{"mensagem": "meu cachorro não... respira direito, muito mal", "urgencia_esperada": "ALTA", "justificativa": "subtriagem fix (item 1): reticências quebram substring 'não respira' em v1.0 (falha, vira BAIXA); tokenização de v1.1 ignora pontuação e casa 'nao'+'respira' contíguos", "classe": "typo"}
+{"mensagem": "ele bateu, a cabeça na parede", "urgencia_esperada": "ALTA", "justificativa": "subtriagem fix (item 1): vírgula quebra substring 'bateu a cabeça' em v1.0 (falha, vira BAIXA); v1.1 casa por token, ignorando a vírgula", "classe": "typo"}
+{"mensagem": "ele não está mais sangrando, já estancou, mas fiquei com medo", "urgencia_esperada": "ALTA", "justificativa": "estado grave negado: 'sangrando' é keyword de ALTA; item 2 diz explicitamente que ALTA nunca é anulada por negação — supertriagem aceita por desenho, nunca subtriagem", "classe": "estado_grave_negado"}
+{"mensagem": "minha tartaruga bateu a cabeça no vidro do aquário", "urgencia_esperada": "ALTA", "justificativa": "bateu a cabeça, espécie tartaruga", "classe": "especie"}
+{"mensagem": "meu cachorro vomitou de manhã, mas parece bem", "urgencia_esperada": "MEDIA", "justificativa": "vomitou", "classe": "direto"}
+{"mensagem": "minha gata tá vomitando direto hoje", "urgencia_esperada": "MEDIA", "justificativa": "vomitando", "classe": "direto"}
+{"mensagem": "ele teve uns episódios de vômito ontem", "urgencia_esperada": "MEDIA", "justificativa": "vômito", "classe": "direto"}
+{"mensagem": "acho que meu cão tá com enjoo, recusou comida", "urgencia_esperada": "MEDIA", "justificativa": "enjoo", "classe": "direto"}
+{"mensagem": "minha cadela apresentou náusea depois de comer", "urgencia_esperada": "MEDIA", "justificativa": "náusea", "classe": "direto"}
+{"mensagem": "meu gato tá com diarreia desde ontem", "urgencia_esperada": "MEDIA", "justificativa": "diarreia", "classe": "direto"}
+{"mensagem": "meu cachorro fez fezes moles hoje de manhã", "urgencia_esperada": "MEDIA", "justificativa": "fezes moles", "classe": "direto"}
+{"mensagem": "notei coco mole do meu gato várias vezes", "urgencia_esperada": "MEDIA", "justificativa": "coco mole (sem acento — variante já listada)", "classe": "typo"}
+{"mensagem": "meu coelho tá com intestino solto faz 2 dias", "urgencia_esperada": "MEDIA", "justificativa": "intestino solto, espécie coelho", "classe": "especie"}
+{"mensagem": "meu cachorro anda letárgico, sem energia", "urgencia_esperada": "MEDIA", "justificativa": "letárgico", "classe": "direto"}
+{"mensagem": "meu gato tá letargico, só dorme o dia todo", "urgencia_esperada": "MEDIA", "justificativa": "letargico sem acento — erro de digitação comum", "classe": "typo"}
+{"mensagem": "ela tá sem apetite há dois dias, recusa ração", "urgencia_esperada": "MEDIA", "justificativa": "sem apetite", "classe": "direto"}
+{"mensagem": "meu cão não quer comer nada desde ontem", "urgencia_esperada": "MEDIA", "justificativa": "não quer comer — negação já é parte da própria keyword", "classe": "direto"}
+{"mensagem": "meu gato tá muito quieto, diferente do normal", "urgencia_esperada": "MEDIA", "justificativa": "muito quieto", "classe": "direto"}
+{"mensagem": "meu cachorro tá parado demais, não quer brincar", "urgencia_esperada": "MEDIA", "justificativa": "parado demais", "classe": "direto"}
+{"mensagem": "meu pet tá fraco, mal consegue andar", "urgencia_esperada": "MEDIA", "justificativa": "fraco", "classe": "direto"}
+{"mensagem": "meu cão tá cansado demais, nem quis passear", "urgencia_esperada": "MEDIA", "justificativa": "cansado demais", "classe": "direto"}
+{"mensagem": "meu gato tá com febre, bem quente", "urgencia_esperada": "MEDIA", "justificativa": "febre", "classe": "direto"}
+{"mensagem": "minha cadela tá com temperatura alta desde ontem", "urgencia_esperada": "MEDIA", "justificativa": "temperatura alta", "classe": "direto"}
+{"mensagem": "ele tá quente demais, acho que é febre", "urgencia_esperada": "MEDIA", "justificativa": "quente demais + febre (mesma categoria)", "classe": "direto"}
+{"mensagem": "acho que meu pet tá febril, ele parece murcho", "urgencia_esperada": "MEDIA", "justificativa": "febril", "classe": "direto"}
+{"mensagem": "mano meu cachorro tá vomitando dnv, o q eu faço", "urgencia_esperada": "MEDIA", "justificativa": "vomitando; abreviações 'dnv'/'q'", "classe": "abreviacao"}
+{"mensagem": "minha gata teve vários episódios de vomito hj, mt estranho", "urgencia_esperada": "MEDIA", "justificativa": "vomito (sem acento); abreviações 'hj'/'mt'", "classe": "abreviacao"}
+{"mensagem": "meu cachorro vomitou de novo 😢 tô preocupada", "urgencia_esperada": "MEDIA", "justificativa": "vomitou + emoji + abreviação 'tô'", "classe": "abreviacao_emoji"}
+{"mensagem": "meu gato comeu rápido demais e agora tá com enjoo, será que é grave?", "urgencia_esperada": "MEDIA", "justificativa": "enjoo; pergunta ambígua no final não muda o sintoma detectado", "classe": "ambiguidade"}
+{"mensagem": "meu papagaio anda muito quieto, não sei se é normal", "urgencia_esperada": "MEDIA", "justificativa": "muito quieto, espécie papagaio", "classe": "especie"}
+{"mensagem": "meu hamster tá com diarreia, nunca vi isso nele", "urgencia_esperada": "MEDIA", "justificativa": "diarreia, espécie hamster; 'nunca' vem DEPOIS da keyword (janela de negação só olha antes)", "classe": "especie"}
+{"mensagem": "socorro, minha cadela tá com fezes moles e meio sem graça, será grave?", "urgencia_esperada": "MEDIA", "justificativa": "fezes moles; cauda ambígua não muda a classificação", "classe": "ambiguidade"}
+{"mensagem": "oi, queria saber se posso dar banho no meu cachorro hoje", "urgencia_esperada": "BAIXA", "justificativa": "queria saber", "classe": "direto"}
+{"mensagem": "tenho uma dúvida sobre a vacina do meu gato", "urgencia_esperada": "BAIXA", "justificativa": "dúvida", "classe": "direto"}
+{"mensagem": "duvida rapida, posso dar essa racao pro meu coelho?", "urgencia_esperada": "BAIXA", "justificativa": "duvida, espécie coelho; sem acentos (erro de digitação comum)", "classe": "typo"}
+{"mensagem": "como faço pra agendar uma consulta pro meu cão?", "urgencia_esperada": "BAIXA", "justificativa": "como faço", "classe": "direto"}
+{"mensagem": "vcs tem informação sobre castração de gatos?", "urgencia_esperada": "BAIXA", "justificativa": "informação; abreviação 'vcs'", "classe": "abreviacao"}
+{"mensagem": "gostaria de uma informacao sobre vermífugo", "urgencia_esperada": "BAIXA", "justificativa": "informacao sem acento", "classe": "typo"}
+{"mensagem": "meu cachorro tá com comportamento estranho, ficou bravo do nada", "urgencia_esperada": "BAIXA", "justificativa": "comportamento estranho", "classe": "direto"}
+{"mensagem": "meu cachorro anda latindo muito à noite, incomodando os vizinhos", "urgencia_esperada": "BAIXA", "justificativa": "latindo muito", "classe": "direto"}
+{"mensagem": "minha gata tá miando muito de madrugada", "urgencia_esperada": "BAIXA", "justificativa": "miando muito", "classe": "direto"}
+{"mensagem": "meu cão fica roendo os móveis de casa, isso é normal?", "urgencia_esperada": "BAIXA", "justificativa": "roendo", "classe": "direto"}
+{"mensagem": "meu gato tá arranhando tudo em casa, isso é normal?", "urgencia_esperada": "BAIXA", "justificativa": "arranhando", "classe": "direto"}
+{"mensagem": "achei uma pulga no meu cachorro, o que eu faço?", "urgencia_esperada": "BAIXA", "justificativa": "pulga + como faço", "classe": "direto"}
+{"mensagem": "meu cão pegou carrapato de novo, como faço pra prevenir?", "urgencia_esperada": "BAIXA", "justificativa": "carrapato + como faço", "classe": "direto"}
+{"mensagem": "vi uma sanguessuga gigante no jardim, nada demais", "urgencia_esperada": "BAIXA", "justificativa": "falso positivo por substring (item 1): 'sanguessuga' contém 'sangue' como substring mas não como token — v1.0 (substring) classifica ALTA errado; v1.1 (fronteira de palavra) acerta BAIXA", "classe": "falso_positivo"}
+{"mensagem": "o veterinário disse que ele está afebril, tudo bem", "urgencia_esperada": "BAIXA", "justificativa": "falso positivo por substring (item 1): 'afebril' contém 'febril' como substring mas não como token — v1.0 classifica MEDIA errado; v1.1 acerta BAIXA", "classe": "falso_positivo"}
+{"mensagem": "ele não está vomitando mais", "urgencia_esperada": "BAIXA", "justificativa": "mordida nominal do brief: negação com janela curta (item 2) anula 'vomitando' — v1.0 (sem negação) classifica MEDIA errado; v1.1 acerta BAIXA", "classe": "negacao"}
+{"mensagem": "minha gata não tá com diarreia, já melhorou", "urgencia_esperada": "BAIXA", "justificativa": "negação anula 'diarreia'", "classe": "negacao"}
+{"mensagem": "meu cão não está mais fraco, tá bem melhor", "urgencia_esperada": "BAIXA", "justificativa": "negação anula 'fraco'", "classe": "negacao"}
+{"mensagem": "ele não tá com febre, já baixou", "urgencia_esperada": "BAIXA", "justificativa": "negação anula 'febre'", "classe": "negacao"}
+{"mensagem": "meu cachorro tá estranho hoje, não sei bem o que é", "urgencia_esperada": "BAIXA", "justificativa": "ambíguo, sem sintoma específico — default seguro é BAIXA", "classe": "ambiguidade"}
+{"mensagem": "acidentalmente derrubei a ração dele, ele ficou com fome", "urgencia_esperada": "BAIXA", "justificativa": "'acidentalmente' não contém 'acidente' como substring nem como token — nunca foi falso positivo real nesta base de keywords (medido contra v1.0: já dá BAIXA); mantido como caso de regressão", "classe": "ambiguidade"}
+{"mensagem": "minha calopsita tá com carrapato, é perigoso?", "urgencia_esperada": "BAIXA", "justificativa": "carrapato, espécie calopsita", "classe": "especie"}
+{"mensagem": "pfv, como faço pra trocar a ração do meu gato?", "urgencia_esperada": "BAIXA", "justificativa": "como faço; abreviação 'pfv'", "classe": "abreviacao"}
+{"mensagem": "dúvida boba: minha coelha tá roendo tudo em casa, normal?", "urgencia_esperada": "BAIXA", "justificativa": "roendo, espécie coelha", "classe": "especie"}
+{"mensagem": "meu cachorro fica latindo muito à noite 😅 alguma dica?", "urgencia_esperada": "BAIXA", "justificativa": "latindo muito + emoji", "classe": "emoji"}
+{"mensagem": "oi td bem? tenho uma duvida sobre alimentacao do meu gato", "urgencia_esperada": "BAIXA", "justificativa": "duvida; abreviação 'td'", "classe": "abreviacao"}
+{"mensagem": "meu jabuti anda arranhando o vidro do terrário, normal?", "urgencia_esperada": "BAIXA", "justificativa": "arranhando, espécie jabuti", "classe": "especie"}
+{"mensagem": "oi bom dia, vcs abrem hj?", "urgencia_esperada": "BAIXA", "justificativa": "sem sintoma nenhum — pergunta administrativa; abreviações 'vcs'/'hj'", "classe": "abreviacao"}
