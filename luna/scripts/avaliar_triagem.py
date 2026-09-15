@@ -46,6 +46,18 @@ RESSALVA_CORPUS = (
     "`tests/fixtures/README.md`."
 )
 
+# LU-07 fix wave 2, item 4 (§8): ruling do Felipe (15/09) — o classificador
+# define só a prioridade na fila da clínica; a segurança do tutor não
+# depende do vocabulário reconhecer a mensagem, porque toda resposta
+# não-ALTA carrega a orientação de emergência fixa
+# (`_ORIENTACAO_EMERGENCIA`, `src/services/inbound_message_service.py`).
+# Nunca alegar cobertura de emergência a partir dos números abaixo.
+RESSALVA_PRIORIDADE = (
+    "> ⚠️ O classificador define prioridade na fila da clínica; toda "
+    "resposta não-ALTA ao tutor contém orientação de emergência (rede de "
+    "segurança)."
+)
+
 
 def carregar_corpus(caminho: Path) -> list[dict[str, Any]]:
     """Lê o corpus JSONL, validando campos obrigatórios linha a linha."""
@@ -119,6 +131,7 @@ def avaliar(engine: Any, corpus: list[dict[str, Any]]) -> dict[str, Any]:
 def formatar_markdown(stats: dict[str, Any], versao_regras: str, rotulo: str) -> str:
     linhas = [f"### Avaliação — {rotulo} (`TRIAGE_RULES_VERSION = \"{versao_regras}\"`)", ""]
     linhas.append(RESSALVA_CORPUS)
+    linhas.append(RESSALVA_PRIORIDADE)
     linhas.append("")
     linhas.append(f"- Corpus: **{stats['total']}** mensagens")
     linhas.append(f"- Acurácia: **{stats['acuracia']:.1%}** ({stats['corretos']}/{stats['total']})")

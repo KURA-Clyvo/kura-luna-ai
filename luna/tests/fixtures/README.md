@@ -26,3 +26,11 @@ classifica um nível acima (ALTA nunca é anulada por negação — nunca
 afrouxamos ALTA para ganhar acurácia). Essas linhas medem supertriagem
 aceita, documentada de propósito, não erro de rotulagem — ver
 `tests/unit/ai/test_triagem_corpus.py`.
+
+⚠️ **LU-07 fix wave 2 (ruling do Felipe, 15/09):** o classificador define
+**só a prioridade na fila** da clínica — toda resposta não-ALTA ao tutor
+contém orientação de emergência (rede de segurança), sempre, independente
+do vocabulário ter reconhecido a mensagem. Não alegar que este corpus/
+vocabulário mede cobertura de emergência: quem cobre emergência é a
+orientação fixa nas respostas (`_ORIENTACAO_EMERGENCIA`,
+`src/services/inbound_message_service.py`), não a classificação.

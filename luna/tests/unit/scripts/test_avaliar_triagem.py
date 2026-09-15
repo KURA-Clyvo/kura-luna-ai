@@ -9,7 +9,13 @@ para provar que o instrumento enxerga a string quando ela existe).
 """
 from pathlib import Path
 
-from scripts.avaliar_triagem import RESSALVA_CORPUS, avaliar, carregar_corpus, formatar_markdown
+from scripts.avaliar_triagem import (
+    RESSALVA_CORPUS,
+    RESSALVA_PRIORIDADE,
+    avaliar,
+    carregar_corpus,
+    formatar_markdown,
+)
 from src.ai.triage_engine import TriageEngine
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[2] / "fixtures"
@@ -36,6 +42,24 @@ def test_saida_markdown_contem_ressalva_acima_da_matriz() -> None:
     assert RESSALVA_CORPUS in saida
 
     pos_ressalva = saida.index(RESSALVA_CORPUS)
+    pos_matriz = saida.index("| Esperado")
+    assert pos_ressalva < pos_matriz, "ressalva tem que vir ANTES da matriz"
+
+
+def test_saida_markdown_contem_ressalva_de_prioridade_acima_da_matriz() -> None:
+    """LU-07 fix wave 2, item 4 (§8): a saída também tem que declarar que o
+    classificador só prioriza a fila — quem cobre emergência é a rede de
+    segurança nas respostas, não o vocabulário."""
+    corpus = carregar_corpus(_CORPUS_PATH)
+    engine = TriageEngine()
+    stats = avaliar(engine, corpus)
+    saida = formatar_markdown(stats, "1.3", "v1.3")
+
+    assert RESSALVA_PRIORIDADE in saida
+    assert "prioridade" in RESSALVA_PRIORIDADE.lower()
+    assert "orientação de emergência" in RESSALVA_PRIORIDADE or "orientacao de emergencia" in RESSALVA_PRIORIDADE.lower()
+
+    pos_ressalva = saida.index(RESSALVA_PRIORIDADE)
     pos_matriz = saida.index("| Esperado")
     assert pos_ressalva < pos_matriz, "ressalva tem que vir ANTES da matriz"
 
@@ -67,3 +91,13 @@ def test_readme_fixtures_contem_ressalva() -> None:
     assert "não validado por" in texto_lower
     assert "veterinário" in texto_lower
     assert "mede aderência às regras" in texto_lower
+
+
+def test_readme_fixtures_contem_ressalva_de_prioridade() -> None:
+    """LU-07 fix wave 2, item 4 (§8): README também declara que o
+    classificador só prioriza a fila — a rede de segurança nas respostas é
+    quem cobre emergência para toda resposta não-ALTA."""
+    readme = _FIXTURES_DIR / "README.md"
+    texto_lower = readme.read_text(encoding="utf-8").lower()
+    assert "prioridade na fila" in texto_lower
+    assert "orientação de emergência" in texto_lower or "orientacao de emergencia" in texto_lower
