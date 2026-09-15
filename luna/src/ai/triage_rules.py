@@ -1,6 +1,6 @@
 """Listas versionadas de sintomas para triagem de mensagens de tutores."""
 
-TRIAGE_RULES_VERSION = "1.2"
+TRIAGE_RULES_VERSION = "1.3"
 
 # Cada chave é o nome da categoria; os valores são keywords em português (com ou sem acento).
 # O TriageEngine normaliza tudo antes de comparar.
@@ -95,25 +95,25 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "jorrando sangue",
     ],
     "intoxicacao": [
+        # Descrevem o ESTADO já instalado (intoxicação em curso) — continuam
+        # incondicionais, não dependem de verbo de ingestão na mesma oração.
         "envenenado",
         "envenenamento",
         "veneno",
         "intoxicado",
         "intoxicação",
-        "comeu produto",
-        "ingeriu produto",
         "rato veneno",
         "raticida",
-        "chocolate",
-        "uva",
-        "passas",
-        "xilitol",
-        "remedio humano",
-        "produto de limpeza",
-        "pilha",
-        "bateria",
-        "engoliu objeto",
-        "objeto estranho",
+        # LU-07 fix wave 2, item 2: os OBJETOS específicos (chocolate, uva,
+        # pilha, produto de limpeza etc.) saíram daqui — eram literais
+        # incondicionais na fix wave 1 (bastava a palavra aparecer, sem
+        # verbo de ingestão perto). Agora exigem combinação com um verbo de
+        # ingestão na MESMA oração (`COMBINACOES_ALTA["ingestao_toxica"]`,
+        # abaixo) — "chocolate" sozinho numa frase sem verbo de ingestão
+        # deixa de disparar ALTA por acidente; "comeu chocolate"/"lambeu
+        # produto de limpeza" continuam ALTA, agora via combinação (as
+        # linhas do corpus que motivaram esses literais já tinham o verbo
+        # na mesma oração — nenhuma perdeu cobertura, ver lu-07-report.md).
     ],
     "dispneia": [
         "dificuldade respirar",
@@ -137,7 +137,6 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
     "trauma": [
         "atropelado",
         "atropelamento",
-        "caiu de altura",
         "bateu a cabeça",
         "bateu a cabeca",
         "fratura",
@@ -146,6 +145,9 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "fratura exposta",
         "mordida de outro animal",
         "mordido por outro animal",
+        # "caiu de altura" saiu daqui na fix wave 2 (item 2): a categoria de
+        # combinação `queda_altura` (abaixo) generaliza "caiu" + qualquer
+        # palavra de altura, em vez de depender só desta frase exata.
     ],
     "retencao_urinaria": [
         "sem fazer xixi",
@@ -153,6 +155,10 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "nao faz xixi",
         "fazendo forca sem sair",
         "nao urina",
+        # LU-07 fix wave 2, item 2: generaliza "urinar sem sair" além da
+        # frase composta original.
+        "nao sai nada",
+        "fazendo forca",
     ],
     "parto_complicado": [
         "em trabalho de parto ha horas",
@@ -160,25 +166,121 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "filhote preso",
         "nao consegue parir",
         "parto complicado",
+        # LU-07 fix wave 2, item 2: "parto prolongado" além de "complicado".
+        "parto prolongado",
     ],
-    "picada_peconhenta": [
-        "picada de cobra",
-        "picada de escorpiao",
-        "picado por sapo",
-        "mordida de cobra",
-        "picada de aranha",
-    ],
+    # "picada_peconhenta" saiu daqui na fix wave 2 (item 2): a categoria de
+    # combinação `picada_mordida` (abaixo) generaliza qualquer forma de
+    # "picad*"/"mordid*" combinada com qualquer animal, em vez de depender
+    # das 5 frases exatas que existiam aqui ("picada de cobra" etc.) — as
+    # mesmas mensagens continuam ALTA, agora via combinação.
     "abdome_distendido": [
         "barriga inchada e dura",
         "abdomen distendido",
         "barriga estufada",
         "tentando vomitar sem conseguir",
+        # LU-07 fix wave 2, item 2: "abdome duro/inchado" além da frase
+        # composta original.
+        "abdome distendido",
+        "abdome inchado",
+        "barriga dura",
     ],
     "hipertermia": [
         "golpe de calor",
         "hipertermia",
+        # LU-07 fix wave 2, item 2: "prostração após calor".
+        "prostrado no calor",
+        "prostracao apos calor",
     ],
 }
+
+# ── LU-07 fix wave 2, item 2: vocabulário por PADRÃO, não por exemplo ──────
+# Ruling do Felipe (15/09): a sonda do maestro em `ccc3739` mostrou que a
+# maioria das emergências ainda caía em BAIXA — a fix wave 1 cobriu os
+# EXEMPLOS do brief anterior (frases inteiras), não o PADRÃO por trás deles.
+# Verbo de ingestão × objeto tóxico, picada/mordida × animal e queda × altura
+# são combinatórios por natureza (5 verbos × 19 objetos, por exemplo) — uma
+# lista de frases fixas nunca alcança as combinações que um tutor de verdade
+# escreve. Em vez de enumerar frases, cada item de COMBINACOES_ALTA é
+# (categoria, grupo_a, grupo_b): ALTA quando pelo menos um termo de grupo_a
+# E pelo menos um termo de grupo_b aparecem na MESMA ORAÇÃO (reaproveita
+# `_clause_ids`, LU-07 fix wave 1 A2), em qualquer ordem — não precisam ser
+# contíguos. Cada termo continua casando por TOKEN com fronteira de palavra
+# (LU-07 item 1), nunca por substring; nenhum regex livre vem daqui, só
+# listas de tokens/sequências literais. ALTA continua imune a negação — o
+# motor (triage_engine.py) nunca checa negação para combinações de ALTA,
+# igual às keywords simples de ALTA.
+COMBINACOES_ALTA: list[tuple[str, list[str], list[str]]] = [
+    (
+        "ingestao_toxica",
+        # "ingeriu" além dos 5 verbos do brief — cobre "ingeriu produto",
+        # frase literal que existia em v1.2 e seria perdida sem este termo
+        # (achado durante a suíte desta fix wave: a corpus_v1.jsonl já tinha
+        # "meu gato ingeriu produto quimico" esperando ALTA).
+        ["engoliu", "comeu", "lambeu", "tomou", "mastigou", "ingeriu"],
+        [
+            "chocolate",
+            "uva",
+            "passas",
+            "xilitol",
+            "veneno",
+            "raticida",
+            "remedio",
+            "remedio humano",
+            "medicamento",
+            "comprimido",
+            # "produto" genérico (não só "de limpeza") — generaliza "comeu
+            # produto"/"ingeriu produto" (literal de v1.2) para qualquer
+            # produto nomeado na mesma oração ("produto quimico", "produto
+            # de limpeza", "produto toxico"...).
+            "produto",
+            "desinfetante",
+            "sabao",
+            "pilha",
+            "bateria",
+            "objeto estranho",
+            "planta toxica",
+            "agrotoxico",
+        ],
+    ),
+    (
+        "picada_mordida",
+        ["picada", "picado", "picou", "mordida", "mordido", "mordeu", "mordendo"],
+        [
+            "cobra",
+            "escorpiao",
+            "aranha",
+            "abelha",
+            "vespa",
+            "marimbondo",
+            "taturana",
+            "lacraia",
+            "sapo",
+            "rato",
+            "inseto",
+            "outro animal",
+            "animal desconhecido",
+        ],
+    ),
+    (
+        "queda_altura",
+        ["caiu"],
+        [
+            "telhado",
+            "janela",
+            "escada",
+            "muro",
+            "varanda",
+            "sacada",
+            "andar",
+            "altura",
+            "metro",
+            "metros",
+            "arvore",
+            "laje",
+        ],
+    ),
+]
 
 SINTOMAS_MEDIA_URGENCIA: dict[str, list[str]] = {
     "vomito": [

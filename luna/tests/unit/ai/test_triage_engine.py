@@ -322,7 +322,83 @@ def test_item2_fronteira_de_palavra_sem_regressao_afebril(engine: TriageEngine) 
 
 # ── LU-07 item 3: versão das regras ────────────────────────────────────────────
 
-def test_versao_regras_e_1_2() -> None:
-    """LU-07 fix wave 1, item 3: versão sobe para 1.2 (≤ 10 bytes)."""
-    assert TRIAGE_RULES_VERSION == "1.2"
+def test_versao_regras_e_1_3() -> None:
+    """LU-07 fix wave 2, item 2: versão sobe para 1.3 (≤ 10 bytes)."""
+    assert TRIAGE_RULES_VERSION == "1.3"
     assert len(TRIAGE_RULES_VERSION.encode("utf-8")) <= 10
+
+
+# ── LU-07 fix wave 2, item 2: vocabulário por PADRÃO (combinação) ──────────────
+# Ruling do Felipe (15/09): a fix wave 1 cobriu os EXEMPLOS do brief anterior,
+# não o padrão — a sonda do maestro em `ccc3739` mostrou a maioria das
+# emergências ainda caindo em BAIXA. Casos abaixo exercitam COMBINACOES_ALTA
+# (verbo de ingestão × objeto tóxico, picada/mordida × animal, caiu × altura)
+# com frases NOVAS, escritas por mim, que nunca apareceram como frase inteira
+# em nenhuma keyword literal — provam generalização real, não mais um
+# exemplo memorizado.
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "meu cachorro lambeu veneno de rato",  # ingestão x objeto (lambeu+veneno, novo par)
+        "ele tomou remedio humano sem querer",  # tomou + remedio humano
+        "ela mastigou uma pilha",  # mastigou + pilha
+        "engoliu um comprimido inteiro",  # engoliu + comprimido
+        "foi picado por uma aranha no jardim",  # picada/mordida x animal
+        "levou uma mordida de rato",
+        "picou o escorpiao ele",  # ordem invertida do grupo_a/grupo_b
+        "meu gato caiu da janela do segundo andar",  # queda x altura
+        "ele caiu do telhado de manha",
+        "cachorro caiu da arvore",
+    ],
+)
+def test_item2_combinacao_generaliza_padroes_novos(engine: TriageEngine, texto: str) -> None:
+    r = engine.classificar(texto)
+    assert r.urgencia == "ALTA"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "comeu a racao toda",
+        "caiu no sono cedo hoje",
+        "tomou banho e ficou feliz",
+        "mordeu o brinquedo novo",
+        "lambeu a agua da tigela",
+        "engoliu rapido a comida",
+        "mastigou o osso de brinquedo",
+        "picou o dedo dele sem querer no portao",
+        "caiu a folha da planta perto dele",
+        "tomou sol na varanda de manha",
+    ],
+)
+def test_item2_supertriagem_verbos_sem_par_ficam_baixa_ou_media(
+    engine: TriageEngine, texto: str
+) -> None:
+    """Supertriagem (brief item 2): os mesmos verbos usados nas combinações
+    de ALTA, em frases inofensivas onde o OUTRO grupo (objeto tóxico/animal/
+    altura) não aparece na mesma oração — a combinação exige os dois lados,
+    então nada dispara ALTA por acidente."""
+    r = engine.classificar(texto)
+    assert r.urgencia in ("BAIXA", "MEDIA")
+
+
+def test_item2_combinacao_respeita_fronteira_de_oracao(engine: TriageEngine) -> None:
+    """Os dois grupos em orações DIFERENTES não combinam — mesma regra de
+    fronteira de oração do A2 (fix wave 1), aplicada à combinação nova."""
+    r = engine.classificar("ele comeu bastante hoje. depois vi uma pilha solta no chao")
+    assert r.urgencia != "ALTA"
+
+
+def test_item2_combinacao_nao_duplica_categoria_ja_literal(engine: TriageEngine) -> None:
+    """"picada de cobra" continua ALTA depois de remover a frase literal de
+    picada_peconhenta — agora via combinação picada_mordida."""
+    r = engine.classificar("foi picada de cobra na perna dele")
+    assert r.urgencia == "ALTA"
+
+
+def test_item2_queda_altura_substitui_frase_literal_removida(engine: TriageEngine) -> None:
+    """"caiu de altura" continua ALTA depois de remover a frase literal de
+    trauma — agora via combinação queda_altura ("caiu" + "altura")."""
+    r = engine.classificar("meu cão caiu de altura do telhado")
+    assert r.urgencia == "ALTA"

@@ -191,7 +191,7 @@ def test_cenario_alta_urgencia_tutor_desconhecido(
     interaction_body = interaction_route.calls[0].request.read()
     assert b'"id_tutor": null' in interaction_body or b'"id_tutor":null' in interaction_body
     assert b"ALTA" in interaction_body
-    assert b"1.2" in interaction_body  # LU-07 fix wave 1, item 3: TRIAGE_RULES_VERSION 1.2
+    assert b"1.3" in interaction_body  # LU-07 fix wave 2, item 2: TRIAGE_RULES_VERSION 1.3
 
     # Sem tutor, sem FK valida em TRIAGEM_LUNA -> /triage nunca chamado
     assert not triage_route.called

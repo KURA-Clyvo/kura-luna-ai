@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from src.ai.triage_rules import (
     CLAUSE_BOUNDARY_CHARS,
     CLAUSE_COORDINATING_CONJUNCTIONS,
+    COMBINACOES_ALTA,
     NEGATION_TRIGGERS,
     NEGATION_WINDOW_TOKENS,
     SINTOMAS_ALTA_URGENCIA,
@@ -92,6 +93,41 @@ def _preceded_by_negation(
     return False
 
 
+def _termo_presente_na_clausula(
+    termo: str, tokens: list[str], clause_ids: list[int], clausula: int
+) -> bool:
+    """True se `termo` (token ou sequência de tokens) casa em `tokens`
+    (fronteira de palavra, LU-07 item 1) em alguma posição dentro da
+    oração `clausula` (LU-07 fix wave 1, A2)."""
+    termo_tokens = _tokenize(_normalize(termo))
+    for pos in _find_positions(termo_tokens, tokens):
+        if clause_ids[pos] == clausula:
+            return True
+    return False
+
+
+def _combinacao_detectada(
+    grupo_a: list[str], grupo_b: list[str], tokens: list[str], clause_ids: list[int]
+) -> bool:
+    """LU-07 fix wave 2, item 2: True se algum termo de `grupo_a` e algum
+    termo de `grupo_b` aparecem na MESMA oração (ordem irrelevante) —
+    generaliza padrões combinatórios (ex.: verbo de ingestão × objeto
+    tóxico) sem enumerar cada frase inteira. Só usado para ALTA: nunca
+    checa negação, igual às keywords simples de ALTA (ver
+    `_keyword_detectado`)."""
+    if not tokens:
+        return False
+    clausulas_presentes = set(clause_ids)
+    for clausula in clausulas_presentes:
+        tem_a = any(_termo_presente_na_clausula(t, tokens, clause_ids, clausula) for t in grupo_a)
+        if not tem_a:
+            continue
+        tem_b = any(_termo_presente_na_clausula(t, tokens, clause_ids, clausula) for t in grupo_b)
+        if tem_b:
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class TriageResult:
     """Resultado da classificação de triagem."""
@@ -144,6 +180,15 @@ class TriageEngine:
                         level_sintomas.append(kw)
                         total_score += pts
                         break  # conta cada categoria uma vez por nível
+
+            # LU-07 fix wave 2, item 2: combinações (vocabulário por padrão)
+            # só existem para ALTA hoje — mesma pontuação/contagem por
+            # categoria que as keywords simples do nível.
+            if level == "ALTA":
+                for categoria, grupo_a, grupo_b in COMBINACOES_ALTA:
+                    if _combinacao_detectada(grupo_a, grupo_b, tokens, clause_ids):
+                        level_sintomas.append(f"combinacao:{categoria}")
+                        total_score += pts
 
             if level_sintomas:
                 all_sintomas.extend(level_sintomas)
