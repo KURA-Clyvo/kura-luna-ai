@@ -6,7 +6,18 @@ from twilio.rest import Client
 
 
 class MessagingError(Exception):
-    """Levantado quando o envio via Twilio falha."""
+    """Levantado quando o envio via Twilio falha.
+
+    ``codigo`` (LU-03) carrega só o código/tipo do erro — nunca texto livre —
+    para que quem persiste a falha (``NOTIFICACAO.DS_ERRO_ENVIO``) monte
+    "tipo + código" sem precisar reabrir ``str(exc)`` (que, na ausência
+    completa deste atributo, seria a única fonte disponível e poderia um dia
+    carregar texto não sanitizado de um chamador futuro).
+    """
+
+    def __init__(self, mensagem: str, codigo: str | int | None = None) -> None:
+        super().__init__(mensagem)
+        self.codigo = codigo
 
 
 @runtime_checkable
@@ -64,7 +75,10 @@ class TwilioGateway:
             # twilio.http.http_client.TwilioHttpClient.request), então
             # exc.uri nunca carrega o telefone.
             raise MessagingError(
-                f"Twilio REST error [{exc.code}] status={exc.status} uri={exc.uri}"
+                f"Twilio REST error [{exc.code}] status={exc.status} uri={exc.uri}",
+                codigo=exc.code,
             ) from None
         except Exception as exc:
-            raise MessagingError(f"Falha ao enviar WhatsApp: {exc}") from exc
+            raise MessagingError(
+                f"Falha ao enviar WhatsApp: {exc}", codigo=type(exc).__name__
+            ) from exc

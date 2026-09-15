@@ -1,21 +1,24 @@
-"""Dataclass espelhando a tabela NOTIFICACAO."""
+"""Dataclass espelhando as colunas de NOTIFICACAO usadas pela Luna (V9 + V21/LU-02)."""
 from dataclasses import dataclass
 from datetime import datetime
 
 
 @dataclass(frozen=True, slots=True)
 class Notificacao:
-    """Representa um registro na tabela NOTIFICACAO."""
+    """Representa um registro a inserir/atualizar em NOTIFICACAO.
 
+    ``id_clinica`` é obrigatório porque a coluna é ``NOT NULL`` desde a V9 —
+    esquecê-la faz o INSERT falhar com ``ORA-01400`` (achado N1/LU-01).
+    """
+
+    id_clinica: int
     id_tutor: int
-    ds_canal: str
-    ds_tipo: str
+    id_pet: int
     ds_titulo: str
     ds_mensagem: str
-    dt_agendada: datetime
-    st_status: str
+    ds_canal: str
+    ds_tipo: str
+    st_envio: str
     id_notificacao: int | None = None
-    id_pet: int | None = None
-    id_evento: int | None = None
-    dt_enviada: datetime | None = None
+    dt_envio: datetime | None = None
     ds_erro_envio: str | None = None
