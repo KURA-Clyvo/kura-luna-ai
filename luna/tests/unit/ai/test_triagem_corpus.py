@@ -10,11 +10,21 @@ from pathlib import Path
 
 import pytest
 
-from scripts.avaliar_triagem import carregar_corpus
+from scripts.avaliar_triagem import _RANK, carregar_corpus
 from src.ai.triage_engine import TriageEngine
 
 _CORPUS_PATH = Path(__file__).resolve().parents[2] / "fixtures" / "triagem_corpus_v1.jsonl"
 _CORPUS = carregar_corpus(_CORPUS_PATH)
+
+# LU-07 fix wave 1, item 3 (achado A5 da G2): a linha do sangramento
+# resolvido ("já estancou") tinha `urgencia_esperada` ajustado à REGRA do
+# motor (ALTA, "porque o item 2 diz"), não ao julgamento clínico. Corrigida
+# para o rótulo clínico (MEDIA — sangramento já resolvido não é mais
+# emergência ativa); o motor CONTINUA classificando ALTA por desenho (ALTA
+# imune a negação, nunca afrouxamos), e isso é supertriagem aceita, não
+# subtriagem — documentada explicitamente abaixo em vez de "corrigir" o
+# rótulo para bater com a regra de novo.
+_SUPERTRIAGEM_ACEITA_POR_DESENHO = "supertriagem_aceita_por_desenho"
 
 
 @pytest.fixture(scope="module")
@@ -29,6 +39,14 @@ def engine() -> TriageEngine:
 )
 def test_corpus_classificacao_esperada(item: dict, engine: TriageEngine) -> None:
     resultado = engine.classificar(item["mensagem"])
+    if item.get("classe") == _SUPERTRIAGEM_ACEITA_POR_DESENHO:
+        # Rótulo é o clínico, o motor erra por desenho (supertriagem aceita,
+        # nunca subtriagem) — ver comentário no topo do arquivo (achado A5).
+        assert _RANK[resultado.urgencia] >= _RANK[item["urgencia_esperada"]], (
+            f"mensagem={item['mensagem']!r} — supertriagem esperada, mas o motor "
+            f"classificou ABAIXO do rótulo clínico: {resultado.urgencia}"
+        )
+        return
     assert resultado.urgencia == item["urgencia_esperada"], (
         f"mensagem={item['mensagem']!r} justificativa={item['justificativa']!r} "
         f"esperado={item['urgencia_esperada']} previsto={resultado.urgencia}"

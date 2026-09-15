@@ -1,5 +1,10 @@
 """Avalia o TriageEngine contra um corpus rotulado (LU-07 item 7).
 
+⚠️ Corpus escrito pelo time de desenvolvimento, não validado por
+veterinário. Mede aderência às regras, não segurança clínica — ver
+`tests/fixtures/README.md`. Esta ressalva também é impressa na saída
+markdown (`RESSALVA_CORPUS`, LU-07 fix wave 1, achado A4 da G2).
+
 Calcula matriz de confusão 3x3 (esperado x previsto), acurácia, taxa de
 subtriagem de ALTA (esperado ALTA, previsto MEDIA/BAIXA) e taxa de
 supertriagem (esperado BAIXA/MEDIA, previsto nível mais alto que o
@@ -30,6 +35,16 @@ if hasattr(sys.stdout, "reconfigure"):
 
 _NIVEIS = ["ALTA", "MEDIA", "BAIXA"]
 _RANK = {"BAIXA": 0, "MEDIA": 1, "ALTA": 2}
+
+# LU-07 fix wave 1, item 5 (achado A4 da G2): a ressalva de autoria/validação
+# do corpus NÃO estava impressa nesta saída (o relatório antigo alegava que
+# estava "no cabeçalho do script" — falso, corrigido em lu-07-report.md).
+# Repetida aqui, literal, para não depender de quem lê `tests/fixtures/README.md`.
+RESSALVA_CORPUS = (
+    "> ⚠️ Corpus escrito pelo time de desenvolvimento, não validado por "
+    "veterinário. Mede aderência às regras, não segurança clínica — ver "
+    "`tests/fixtures/README.md`."
+)
 
 
 def carregar_corpus(caminho: Path) -> list[dict[str, Any]]:
@@ -103,6 +118,8 @@ def avaliar(engine: Any, corpus: list[dict[str, Any]]) -> dict[str, Any]:
 
 def formatar_markdown(stats: dict[str, Any], versao_regras: str, rotulo: str) -> str:
     linhas = [f"### Avaliação — {rotulo} (`TRIAGE_RULES_VERSION = \"{versao_regras}\"`)", ""]
+    linhas.append(RESSALVA_CORPUS)
+    linhas.append("")
     linhas.append(f"- Corpus: **{stats['total']}** mensagens")
     linhas.append(f"- Acurácia: **{stats['acuracia']:.1%}** ({stats['corretos']}/{stats['total']})")
     linhas.append(

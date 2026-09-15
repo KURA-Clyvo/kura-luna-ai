@@ -260,7 +260,69 @@ def test_a2_mordida_volte_janela_antiga_e_negacao_cruza_oracao(
     assert r.urgencia == "MEDIA"
 
 
+# ── LU-07 fix wave 1, item 2: vocabulário ALTA por categoria clínica ───────────
+# Achado da G2 (lu-07-revisao.md, Frente 2): o corpus original só cobria
+# vocabulário que o próprio time escreveu — mensagens reais com sinônimos
+# informais de sinais de emergência (dispneia, inconsciência, intoxicação,
+# trauma, retenção urinária, parto complicado, picada peçonhenta, abdome
+# distendido, hipertermia) não eram reconhecidas. Casos abaixo cobrem cada
+# categoria nova/expandida, escritos por mim a partir das categorias do
+# brief — não são as mensagens do conjunto cego da revisão.
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "meu cachorro não consegue respirar",
+        "ela ta respirando de boca aberta",
+        "notei a gengiva roxa dele",
+        "esta com a lingua azulada",
+        "ele não acorda de jeito nenhum",
+        "ela desmaiou do nada",
+        "ta caido sem reagir",
+        "meu cachorro comeu chocolate",
+        "ele comeu uva sem querer",
+        "acho que ele comeu uma pilha",
+        "meu gato sem fazer xixi ha 2 dias",
+        "ela ta fazendo forca sem sair nada",
+        "gata em trabalho de parto ha horas",
+        "o filhote preso não nasce",
+        "foi picada de cobra",
+        "a barriga inchada e dura, sem melhora",
+        "ele ta com golpe de calor",
+        "meu cachorro foi mordido por outro animal",
+    ],
+)
+def test_a_item2_vocabulario_categoria_clinica_retorna_alta(
+    engine: TriageEngine, texto: str
+) -> None:
+    r = engine.classificar(texto)
+    assert r.urgencia == "ALTA"
+
+
+def test_item2_negacao_nunca_rebaixa_nova_keyword_alta(engine: TriageEngine) -> None:
+    """"não consegue respirar" tem que ser ALTA — é a keyword positiva do
+    estado grave (dispneia), não uma negação de sintoma a ser anulada."""
+    r = engine.classificar("meu cachorro não consegue respirar")
+    assert r.urgencia == "ALTA"
+
+
+def test_item2_fronteira_de_palavra_sem_regressao_sanguessuga(
+    engine: TriageEngine,
+) -> None:
+    """Vocabulário novo não pode reabrir falso positivo de substring —
+    "sanguessuga" continua BAIXA (não casa a keyword "sangue" por token)."""
+    r = engine.classificar("achei uma sanguessuga no quintal")
+    assert r.urgencia == "BAIXA"
+
+
+def test_item2_fronteira_de_palavra_sem_regressao_afebril(engine: TriageEngine) -> None:
+    r = engine.classificar("ele esta afebril hoje")
+    assert r.urgencia == "BAIXA"
+
+
 # ── LU-07 item 3: versão das regras ────────────────────────────────────────────
 
-def test_versao_regras_e_1_1() -> None:
-    assert TRIAGE_RULES_VERSION == "1.1"
+def test_versao_regras_e_1_2() -> None:
+    """LU-07 fix wave 1, item 3: versão sobe para 1.2 (≤ 10 bytes)."""
+    assert TRIAGE_RULES_VERSION == "1.2"
+    assert len(TRIAGE_RULES_VERSION.encode("utf-8")) <= 10

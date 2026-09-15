@@ -1,14 +1,21 @@
 """Listas versionadas de sintomas para triagem de mensagens de tutores."""
 
-TRIAGE_RULES_VERSION = "1.1"
+TRIAGE_RULES_VERSION = "1.2"
 
 # Cada chave é o nome da categoria; os valores são keywords em português (com ou sem acento).
 # O TriageEngine normaliza tudo antes de comparar.
 
 # ── LU-07 item 1: fronteira de palavra ──────────────────────────────────────
 # O TriageEngine casa cada keyword por TOKEN inteiro (não substring), então
-# "acidentalmente" não casa mais a keyword "acidente" (era o falso positivo
-# de trauma na v1.0).
+# "acidentalmente" não casa a keyword "acidente" — mas isso NUNCA foi um
+# falso positivo real em v1.0 (motor por substring): "acidente" não é
+# substring de "acidentalmente" (os 7 primeiros caracteres batem,
+# "acident", o 8º diverge: "a" vs "e"), medido e confirmado em
+# lu-07-report.md (achado da retomada da sessão 5) — o comentário anterior
+# aqui ("era o falso positivo de trauma na v1.0") estava ERRADO (LU-07 fix
+# wave 1, achado A8 da G2). A fronteira de palavra é reforçada de verdade
+# pelas mordidas de "sanguessuga" (contém "sangue" como substring) e
+# "afebril" (contém "febril" como substring) — ver TestMordidasNominais.
 
 # ── LU-07 item 2: negação com janela curta ──────────────────────────────────
 # Regra escrita aqui como DADO — o motor (triage_engine.py) só a aplica.
@@ -43,6 +50,19 @@ NEGATION_WINDOW_TOKENS = 3
 CLAUSE_BOUNDARY_CHARS: str = ".,;!?\n"
 CLAUSE_COORDINATING_CONJUNCTIONS: list[str] = ["e", "mas", "porem", "ou"]
 
+# ── LU-07 fix wave 1, item 2: vocabulário ALTA por categoria clínica ────────
+# Partindo de categorias reconhecidas de emergência veterinária (lu-07-fix-
+# brief.md item 2), cada categoria abaixo ganhou sinônimos informais PT-BR e
+# erros comuns de digitação. Fonte da LISTA DE CATEGORIAS (não dos números —
+# nenhum número de validação clínica é alegado aqui): quadros de "sinais de
+# emergência" amplamente publicados por hospitais/clínicas veterinárias e por
+# centros de controle de intoxicação animal (ex.: material público de
+# pronto-atendimento veterinário 24h e de centros de toxicologia animal sobre
+# quando procurar atendimento imediato). Curadoria do time (implementador
+# sonnet), NÃO validada por veterinário — mesma ressalva do corpus abaixo.
+# Como `_keyword_detectado` normaliza a keyword em tempo de execução
+# (`_normalize` remove acento), não é preciso duplicar forma acentuada e
+# sem acento — mantém-se aqui só a forma sem acento por brevidade.
 SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
     "convulsao": [
         "convulsão",
@@ -51,9 +71,18 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "convulsoes",
         "tremendo muito",
         "espasmo",
+        "tremores continuos",
+        "nao para de tremer",
+    ],
+    "inconsciencia": [
         "desmaiou",
         "perdeu a consciencia",
-        "perdeu a consciência",
+        "nao acorda",
+        "nao responde",
+        "caido sem reagir",
+        "sem reagir",
+        "inconsciente",
+        "desacordado",
     ],
     "sangramento": [
         "sangrando",
@@ -61,8 +90,11 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "hemorragia",
         "sangramento",
         "ferida aberta",
+        "sangramento que nao para",
+        "nao para de sangrar",
+        "jorrando sangue",
     ],
-    "envenenamento": [
+    "intoxicacao": [
         "envenenado",
         "envenenamento",
         "veneno",
@@ -72,6 +104,16 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "ingeriu produto",
         "rato veneno",
         "raticida",
+        "chocolate",
+        "uva",
+        "passas",
+        "xilitol",
+        "remedio humano",
+        "produto de limpeza",
+        "pilha",
+        "bateria",
+        "engoliu objeto",
+        "objeto estranho",
     ],
     "dispneia": [
         "dificuldade respirar",
@@ -82,6 +124,15 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "ofegante",
         "sufocando",
         "engasgou",
+        "nao consegue respirar",
+        "respirando de boca aberta",
+        "ofegante parado",
+        "lingua roxa",
+        "lingua azulada",
+        "lingua palida",
+        "gengiva roxa",
+        "gengiva azulada",
+        "gengiva palida",
     ],
     "trauma": [
         "atropelado",
@@ -92,6 +143,40 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
         "fratura",
         "osso quebrado",
         "acidente",
+        "fratura exposta",
+        "mordida de outro animal",
+        "mordido por outro animal",
+    ],
+    "retencao_urinaria": [
+        "sem fazer xixi",
+        "nao consegue fazer xixi",
+        "nao faz xixi",
+        "fazendo forca sem sair",
+        "nao urina",
+    ],
+    "parto_complicado": [
+        "em trabalho de parto ha horas",
+        "fazendo forca ha horas",
+        "filhote preso",
+        "nao consegue parir",
+        "parto complicado",
+    ],
+    "picada_peconhenta": [
+        "picada de cobra",
+        "picada de escorpiao",
+        "picado por sapo",
+        "mordida de cobra",
+        "picada de aranha",
+    ],
+    "abdome_distendido": [
+        "barriga inchada e dura",
+        "abdomen distendido",
+        "barriga estufada",
+        "tentando vomitar sem conseguir",
+    ],
+    "hipertermia": [
+        "golpe de calor",
+        "hipertermia",
     ],
 }
 
