@@ -29,6 +29,20 @@ TRIAGE_RULES_VERSION = "1.1"
 NEGATION_TRIGGERS: list[str] = ["nao", "nunca", "sem", "parou de"]
 NEGATION_WINDOW_TOKENS = 3
 
+# ── LU-07 fix wave 1, item A2: a negação não atravessa oração ───────────────
+# Achado da G2 (lu-07-revisao.md, Frente 3): a janela de 3 tokens ignorava
+# limite de oração, então um gatilho de negação numa oração rebaixava uma
+# categoria MEDIA/BAIXA legítima em OUTRA oração da mesma mensagem
+# ("sem comer e vomitando", "sem febre. vomitando" ⇒ MEDIA virava BAIXA).
+# Fix: a oração termina em pontuação forte ou em conjunção coordenativa —
+# dados aqui, o motor (triage_engine.py) só aplica ao computar a janela.
+# CLAUSE_BOUNDARY_CHARS são caracteres (já presentes no texto normalizado,
+# que passa a preservar pontuação na tokenização em vez de descartá-la).
+# CLAUSE_COORDINATING_CONJUNCTIONS são palavras (já sem acento, minúsculas,
+# porque comparadas contra tokens normalizados).
+CLAUSE_BOUNDARY_CHARS: str = ".,;!?\n"
+CLAUSE_COORDINATING_CONJUNCTIONS: list[str] = ["e", "mas", "porem", "ou"]
+
 SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
     "convulsao": [
         "convulsão",

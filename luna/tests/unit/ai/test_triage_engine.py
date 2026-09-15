@@ -209,6 +209,57 @@ def test_negacao_nao_anula_alta_mesmo_fora_de_estado_grave_embutido(engine: Tria
     assert r.urgencia == "ALTA"
 
 
+# ── LU-07 fix wave 1, item A2: negação não atravessa oração ────────────────────
+# Achado da G2 (lu-07-revisao.md, Frente 3): a janela de 3 tokens ignorava
+# fim de oração, então um gatilho de negação numa oração rebaixava MEDIA
+# legítima em OUTRA oração da mesma mensagem. Pares mínimos: MESMA oração
+# (rebaixa) × OUTRA oração, separada por pontuação/conjunção (não rebaixa).
+# Escritos por mim (implementador), não vêm do conjunto cego da revisão.
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "ele nao esta vomitando",
+        "ele parou de vomitar",
+        "sem vomitar",
+        "ele nunca teve febre",
+    ],
+)
+def test_a2_negacao_mesma_oracao_rebaixa(engine: TriageEngine, texto: str) -> None:
+    r = engine.classificar(texto)
+    assert r.urgencia == "BAIXA"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "sem febre. vomitando",
+        "está sem comer e vomitando",
+        "não come, fraco demais",
+        "não sei, febre",
+        "sem apetite, mas vomitando o dia todo",
+        "não está com febre; está vomitando muito",
+    ],
+)
+def test_a2_negacao_em_outra_oracao_nao_rebaixa(engine: TriageEngine, texto: str) -> None:
+    """Gatilho de negação numa oração não pode anular sintoma de OUTRA
+    oração, mesmo dentro dos 3 tokens de distância — a oração termina em
+    pontuação (.,;!?) ou conjunção coordenativa (e, mas, porém, ou)."""
+    r = engine.classificar(texto)
+    assert r.urgencia == "MEDIA"
+
+
+def test_a2_mordida_volte_janela_antiga_e_negacao_cruza_oracao(
+    engine: TriageEngine,
+) -> None:
+    """Mordida nominal A2: se a janela voltar a ignorar fim de oração (regra
+    antiga: olhar só os 3 tokens crus antes da keyword), esta mensagem seria
+    incorretamente anulada, porque "sem" está a 3 tokens de "vomitando" só
+    que numa oração diferente, separada por ponto final."""
+    r = engine.classificar("sem febre. vomitando")
+    assert r.urgencia == "MEDIA"
+
+
 # ── LU-07 item 3: versão das regras ────────────────────────────────────────────
 
 def test_versao_regras_e_1_1() -> None:
