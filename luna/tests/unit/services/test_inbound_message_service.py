@@ -6,6 +6,7 @@ import pytest
 
 from src.messaging.twilio_inbound import InboundMessage
 from src.services.inbound_message_service import (
+    _ORIENTACAO_EMERGENCIA,
     _RESPOSTA_ALTA,
     _RESPOSTA_ALTA_TUTOR_DESCONHECIDO,
     _RESPOSTA_BAIXA,
@@ -413,3 +414,139 @@ async def test_fallback_twilio_falha_nao_loga_telefone_cru(
     ]
     assert fallback_records, "esperava um log de falha ao enviar fallback"
     assert "message_sid=SMtest" in fallback_records[0].getMessage()
+
+
+# ── LU-07 fix wave 2, item 1: rede de segurança na resposta ───────────────────
+# Ruling do Felipe (15/09): o classificador só prioriza a fila da clínica —
+# TODA resposta não-ALTA carrega a orientação fixa de emergência, ALTA não
+# muda e não duplica. Ver _ORIENTACAO_EMERGENCIA em inbound_message_service.py.
+
+class TestRedeDeSeguranca:
+    async def test_media_contem_orientacao(
+        self,
+        service: InboundMessageService,
+        kura_client: AsyncMock,
+        triage_engine: MagicMock,
+    ) -> None:
+        kura_client.buscar_tutor_por_telefone.return_value = _make_tutor()
+        kura_client.registrar_interacao.return_value = 1
+        kura_client.registrar_triagem.return_value = 1
+        triage_result = MagicMock()
+        triage_result.urgencia = "MEDIA"
+        triage_result.sintomas_detectados = ["vomitando"]
+        triage_result.score = 3
+        triage_result.regras_versao = "1.3"
+        triage_engine.classificar.return_value = triage_result
+
+        with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.processar(_make_msg("vomitando"))
+
+        assert _ORIENTACAO_EMERGENCIA in result.resposta_enviada
+
+    async def test_baixa_contem_orientacao(
+        self,
+        service: InboundMessageService,
+        kura_client: AsyncMock,
+        triage_engine: MagicMock,
+    ) -> None:
+        kura_client.buscar_tutor_por_telefone.return_value = _make_tutor()
+        kura_client.registrar_interacao.return_value = 1
+        kura_client.registrar_triagem.return_value = 1
+        triage_result = MagicMock()
+        triage_result.urgencia = "BAIXA"
+        triage_result.sintomas_detectados = []
+        triage_result.score = 0
+        triage_result.regras_versao = "1.3"
+        triage_engine.classificar.return_value = triage_result
+
+        with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.processar(_make_msg("oi"))
+
+        assert _ORIENTACAO_EMERGENCIA in result.resposta_enviada
+
+    async def test_fallback_de_rede_contem_orientacao(
+        self,
+        service: InboundMessageService,
+        kura_client: AsyncMock,
+    ) -> None:
+        """Fallback de rede (urgência desconhecida, urgencia=None) também
+        carrega a orientação — não é ALTA, então entra na regra geral."""
+        kura_client.buscar_tutor_por_telefone.side_effect = RuntimeError("crash")
+
+        with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.processar(_make_msg())
+
+        assert result.resposta_enviada == _RESPOSTA_FALLBACK
+        assert _ORIENTACAO_EMERGENCIA in result.resposta_enviada
+
+    async def test_tutor_desconhecido_baixa_contem_orientacao(
+        self,
+        service: InboundMessageService,
+        kura_client: AsyncMock,
+        triage_engine: MagicMock,
+    ) -> None:
+        kura_client.buscar_tutor_por_telefone.return_value = None
+        kura_client.registrar_interacao.return_value = 5
+        triage_result = MagicMock()
+        triage_result.urgencia = "BAIXA"
+        triage_result.sintomas_detectados = []
+        triage_result.score = 0
+        triage_result.regras_versao = "1.3"
+        triage_engine.classificar.return_value = triage_result
+
+        with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.processar(_make_msg("oi"))
+
+        assert result.resposta_enviada == _RESPOSTA_BAIXA
+        assert _ORIENTACAO_EMERGENCIA in result.resposta_enviada
+
+    async def test_alta_tutor_conhecido_nao_duplica_orientacao(
+        self,
+        service: InboundMessageService,
+        kura_client: AsyncMock,
+        triage_engine: MagicMock,
+    ) -> None:
+        kura_client.buscar_tutor_por_telefone.return_value = _make_tutor(7)
+        kura_client.registrar_interacao.return_value = 42
+        kura_client.registrar_triagem.return_value = 99
+        triage_result = MagicMock()
+        triage_result.urgencia = "ALTA"
+        triage_result.sintomas_detectados = ["convulsão"]
+        triage_result.score = 10
+        triage_result.regras_versao = "1.3"
+        triage_engine.classificar.return_value = triage_result
+
+        with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.processar(_make_msg("convulsionando"))
+
+        assert result.resposta_enviada == _RESPOSTA_ALTA
+        assert _ORIENTACAO_EMERGENCIA not in result.resposta_enviada
+
+    async def test_alta_tutor_desconhecido_nao_duplica_orientacao(
+        self,
+        service: InboundMessageService,
+        kura_client: AsyncMock,
+        triage_engine: MagicMock,
+    ) -> None:
+        kura_client.buscar_tutor_por_telefone.return_value = None
+        kura_client.registrar_interacao.return_value = 9
+        triage_result = MagicMock()
+        triage_result.urgencia = "ALTA"
+        triage_result.sintomas_detectados = ["convulsão"]
+        triage_result.score = 10
+        triage_result.regras_versao = "1.3"
+        triage_engine.classificar.return_value = triage_result
+
+        with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.processar(_make_msg("meu cachorro está convulsionando"))
+
+        assert result.resposta_enviada == _RESPOSTA_ALTA_TUTOR_DESCONHECIDO
+        assert _ORIENTACAO_EMERGENCIA not in result.resposta_enviada
+
+    async def test_orientacao_dentro_do_limite_de_320_chars(self) -> None:
+        assert len(_ORIENTACAO_EMERGENCIA) <= 320
+
+    async def test_mensagem_final_bem_abaixo_do_limite_twilio_1600(self) -> None:
+        assert len(_RESPOSTA_BAIXA) < 1600
+        assert len(_RESPOSTA_MEDIA) < 1600
+        assert len(_RESPOSTA_FALLBACK) < 1600

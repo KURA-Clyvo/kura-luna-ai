@@ -29,9 +29,31 @@ _RESPOSTA_ALTA_TUTOR_DESCONHECIDO = (
     "Procure atendimento veterinário imediato ou o pronto atendimento "
     "veterinário mais próximo."
 )
-_RESPOSTA_MEDIA = "Mensagem recebida. Nossa equipe retorna em até 2 horas."
-_RESPOSTA_BAIXA = "Mensagem registrada. Respondemos em horário comercial."
-_RESPOSTA_FALLBACK = "Recebemos sua mensagem e retornaremos em breve."
+# LU-07 fix wave 2, item 1: rede de segurança na resposta.
+# Ruling do Felipe (15/09): o classificador decide só a PRIORIDADE NA FILA da
+# clínica — nunca mais decide se o tutor recebe orientação de emergência.
+# Vocabulário nunca vai cobrir o jeito de escrever de todo tutor, então toda
+# resposta que NÃO é ALTA carrega esta linha fixa, curta, sem nome de
+# clínica, sem diagnóstico, sem prometer atendimento — só o critério objetivo
+# de quando procurar atendimento imediato por conta própria. ALTA não muda
+# (já orienta atendimento imediato com texto próprio) e não deve duplicar
+# esta linha (ver TestRedeDeSeguranca).
+# Constante única (DRY) reaproveitada nas 3 respostas não-ALTA abaixo.
+# 257 caracteres — dentro do limite de 320 do brief e muito abaixo do limite
+# de corpo de mensagem do WhatsApp/Twilio (1600 caracteres, documentado pela
+# Twilio, não presente em código deste repo — nenhuma constante correspondente
+# existe aqui hoje). Mensagem final mais longa (BAIXA + prefixo de pet único)
+# fica bem abaixo de 400 caracteres.
+_ORIENTACAO_EMERGENCIA = (
+    "Se o animal apresentar dificuldade para respirar, sangramento que não "
+    "para, desmaio ou não responder, convulsão, tiver ingerido algo tóxico "
+    "ou remédio humano, sofrido queda ou atropelamento, ou não conseguir "
+    "urinar, procure atendimento veterinário imediato."
+)
+
+_RESPOSTA_MEDIA = f"Mensagem recebida. Nossa equipe retorna em até 2 horas. {_ORIENTACAO_EMERGENCIA}"
+_RESPOSTA_BAIXA = f"Mensagem registrada. Respondemos em horário comercial. {_ORIENTACAO_EMERGENCIA}"
+_RESPOSTA_FALLBACK = f"Recebemos sua mensagem e retornaremos em breve. {_ORIENTACAO_EMERGENCIA}"
 
 _RESPOSTAS: dict[str, str] = {
     "ALTA": _RESPOSTA_ALTA,
