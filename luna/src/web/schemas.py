@@ -14,3 +14,13 @@ class ReadyResponse(BaseModel):
     status: str
     kura_api: bool
     oracle: bool
+
+
+class ResumoExecucaoResponse(BaseModel):
+    """Resposta do gatilho manual do lembrete de vacina (LU-04) — espelha ``ResumoExecucao``."""
+
+    total: int
+    enviadas: int
+    falhas: int
+    ja_enviadas: int
+    sem_consentimento: int

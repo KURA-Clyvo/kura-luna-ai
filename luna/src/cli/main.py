@@ -27,12 +27,14 @@ class VisaoIndisponivelError(RuntimeError):
 
 
 def _create_lembrete_service() -> tuple["LembreteVacinaService", OracleConnectionPool]:
-    """Composition root para o serviço de lembretes de vacinas."""
-    from src.db.repositories.log_erro_repo import LogErroRepository
-    from src.db.repositories.notificacao_repo import NotificacaoRepository
-    from src.db.repositories.vacina_repo import VacinaRepository
-    from src.messaging.twilio_client import TwilioGateway
-    from src.services.notification_service import LembreteVacinaService
+    """Composition root para o serviço de lembretes de vacinas.
+
+    A montagem de repositórios/gateway/service em si vive em
+    ``services/lembrete_vacina_factory.py`` (LU-04) — reusada também pelo
+    scheduler e pelo endpoint HTTP. Esta função continua existindo na CLI só
+    para criar/fechar o pool próprio da invocação one-shot (`run-job`).
+    """
+    from src.services.lembrete_vacina_factory import criar_lembrete_service
 
     settings = Settings()
     setup_logging(settings.LOG_LEVEL)
@@ -41,15 +43,7 @@ def _create_lembrete_service() -> tuple["LembreteVacinaService", OracleConnectio
         user=settings.ORACLE_USER,
         password=settings.ORACLE_PASSWORD,
     )
-    vacina_repo = VacinaRepository(pool)
-    notificacao_repo = NotificacaoRepository(pool)
-    log_repo = LogErroRepository(pool)
-    gateway = TwilioGateway(
-        account_sid=settings.TWILIO_SID,
-        auth_token=settings.TWILIO_TOKEN,
-        from_number=settings.TWILIO_FROM_NUMBER,
-    )
-    service = LembreteVacinaService(vacina_repo, notificacao_repo, gateway, log_repo)
+    service = criar_lembrete_service(settings, pool)
     return service, pool
 
 
@@ -105,6 +99,7 @@ def run_job() -> None:
         typer.echo(
             f"Concluído — total: {resumo.total} | enviadas: {resumo.enviadas}"
             f" | falhas: {resumo.falhas} | já enviadas: {resumo.ja_enviadas}"
+            f" | sem consentimento: {resumo.sem_consentimento}"
         )
     except Exception as exc:
         logger.exception("Erro fatal em run-job")

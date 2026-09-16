@@ -1,6 +1,7 @@
 """FastAPI application factory da Luna v2.0."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
@@ -15,6 +16,7 @@ from starlette.responses import Response
 from src.config.settings import Settings
 from src.integration.exceptions import KuraApiError, KuraTimeoutError
 from src.web.routers import health as health_router
+from src.web.routers import jobs as jobs_router
 from src.web.routers import transcricao as transcricao_router
 from src.web.routers import webhook_twilio as webhook_router
 from src.web.routers import whatsapp as whatsapp_router
@@ -62,8 +64,38 @@ def create_app(settings: Settings) -> FastAPI:
             logger.warning("Oracle indisponível — pool não inicializado")
             app.state.pool = None
 
+        # LU-04: lock compartilhado entre o tick do scheduler e o gatilho
+        # manual (POST /jobs/lembrete-vacina/executar) — impede as duas
+        # execuções ao mesmo tempo (duplicaria notificação/chamada Twilio).
+        # Criado sempre, mesmo com o scheduler desligado: o gatilho manual
+        # funciona independentemente da flag.
+        app.state.lembrete_lock = asyncio.Lock()
+        app.state.scheduler = None
+        if settings.LUNA_SCHEDULER_ENABLED:
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+            from src.jobs.lembrete_vacina_job import executar_tick_lembrete_vacina
+
+            scheduler = AsyncIOScheduler(timezone="America/Sao_Paulo")
+            scheduler.add_job(
+                executar_tick_lembrete_vacina,
+                "cron",
+                hour=settings.LUNA_SCHEDULER_HORA,
+                minute=0,
+                id="lembrete_vacina",
+                kwargs={"app": app},
+            )
+            scheduler.start()
+            app.state.scheduler = scheduler
+            logger.info(
+                "Scheduler de lembrete de vacina ligado — executa diariamente às %02d:00 BRT",
+                settings.LUNA_SCHEDULER_HORA,
+            )
+
         yield
 
+        if app.state.scheduler is not None:
+            app.state.scheduler.shutdown(wait=False)
         await http_client.aclose()
         active_pool = getattr(app.state, "pool", None)
         if active_pool is not None:
@@ -102,6 +134,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     # ── routers ───────────────────────────────────────────────────────────────
     app.include_router(health_router.router)
+    app.include_router(jobs_router.router)
     app.include_router(webhook_router.router)
     app.include_router(whatsapp_router.router)
     app.include_router(transcricao_router.router)

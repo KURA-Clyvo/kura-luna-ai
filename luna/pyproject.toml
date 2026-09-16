@@ -27,7 +27,10 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--tb=short -q"
-markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "oracle: requires a real Oracle connection (ORACLE_DSN/ORACLE_USER/ORACLE_PASSWORD); skipped otherwise, not run by CI/default suite",
+]
 asyncio_mode = "auto"
 
 [tool.coverage.run]

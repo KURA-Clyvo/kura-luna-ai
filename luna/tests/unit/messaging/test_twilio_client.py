@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.messaging.templates import lembrete_vacina, sugestao_cuidados_raca
-from src.messaging.twilio_client import ITwilioGateway, MessagingError, TwilioGateway
+from src.messaging.twilio_client import (
+    ITwilioGateway,
+    MessagingError,
+    TwilioGateway,
+    normalizar_telefone_whatsapp,
+)
 
 # ---------------------------------------------------------------------------
 # TwilioGateway
@@ -143,6 +148,74 @@ def test_twilio_gateway_implementa_protocolo() -> None:
     with patch("src.messaging.twilio_client.Client"):
         gw = TwilioGateway(account_sid="AC1", auth_token="tok", from_number="+14155238886")
     assert isinstance(gw, ITwilioGateway)
+
+
+# ---------------------------------------------------------------------------
+# normalizar_telefone_whatsapp (G2-1, herdado da G2 do LU-09)
+#
+# Medido no Oracle do compose (lu-04-brief.md, 15/09): TUTOR.DS_TELEFONE tem
+# os DOIS formatos coexistindo -- 7/10 tutores em nacional (11 dígitos,
+# DDD9XXXXXXXX) e 3/10 já com DDI (13 dígitos, começando com 55). A versão
+# anterior de `enviar_whatsapp` só acertava o primeiro formato.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("entrada", "esperado"),
+    [
+        # nacional, 11 dígitos (sem DDI) -- formato real medido (7/10 tutores)
+        ("11988887777", "whatsapp:+5511988887777"),
+        # nacional, 10 dígitos (fixo, sem 9) -- também aceito
+        ("1133334444", "whatsapp:+551133334444"),
+        # já com DDI, 13 dígitos (formato real medido, 3/10 tutores) -- SEM "+"
+        ("5511988887777", "whatsapp:+5511988887777"),
+        # já com DDI e "+", 13 dígitos
+        ("+5511988887777", "whatsapp:+5511988887777"),
+        # já com DDI, 12 dígitos (fixo)
+        ("551133334444", "whatsapp:+551133334444"),
+        # já com prefixo whatsapp: -- devolvido sem alteração
+        ("whatsapp:+5511999990000", "whatsapp:+5511999990000"),
+    ],
+)
+def test_normalizar_telefone_whatsapp_formatos_validos(entrada: str, esperado: str) -> None:
+    assert normalizar_telefone_whatsapp(entrada) == esperado
+
+
+@pytest.mark.parametrize(
+    "entrada",
+    [
+        "123",  # curto demais
+        "999999999999999",  # longo demais (15 dígitos)
+        "",  # vazio
+        "abc-nao-e-numero",  # não numérico
+    ],
+)
+def test_normalizar_telefone_whatsapp_formato_invalido_levanta_sem_vazar_numero(
+    entrada: str,
+) -> None:
+    with pytest.raises(MessagingError) as exc_info:
+        normalizar_telefone_whatsapp(entrada)
+    # LGPD: o número (quando não vazio) nunca aparece na mensagem da exceção.
+    if entrada:
+        assert entrada not in str(exc_info.value)
+
+
+@patch("src.messaging.twilio_client.Client")
+def test_enviar_whatsapp_numero_com_ddi_gera_to_correto_sem_duplicar_55(
+    mock_client_cls: MagicMock,
+) -> None:
+    """Mordida do G2-1: reverter `enviar_whatsapp` para `f"whatsapp:+55{para}"`
+    faz este caso falhar (produziria `whatsapp:+555511988887777`, com "55"
+    duplicado) -- o formato real medido no Oracle do compose para 3/10
+    tutores (`DS_TELEFONE` de 13 dígitos, já começando com "55")."""
+    mock_msg = MagicMock()
+    mock_msg.sid = "SM_DDI"
+    mock_client_cls.return_value.messages.create.return_value = mock_msg
+
+    gw = TwilioGateway(account_sid="AC1", auth_token="tok", from_number="+14155238886")
+    gw.enviar_whatsapp(para="5511988887777", mensagem="Teste DDI")
+
+    call_kwargs = mock_client_cls.return_value.messages.create.call_args[1]
+    assert call_kwargs["to"] == "whatsapp:+5511988887777"
 
 
 # ---------------------------------------------------------------------------

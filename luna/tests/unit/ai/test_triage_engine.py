@@ -145,3 +145,260 @@ def test_result_e_frozen(engine: TriageEngine) -> None:
 def test_sintomas_detectados_nao_vazios_em_alta(engine: TriageEngine) -> None:
     r = engine.classificar("meu pet está sangrando")
     assert len(r.sintomas_detectados) > 0
+
+
+# ── LU-07 item 1: fronteira de palavra (mordida nominal) ──────────────────────
+
+def test_acidentalmente_nao_casa_acidente_mordida_nominal(engine: TriageEngine) -> None:
+    """Mordida nominal do brief LU-07: "acidentalmente derrubei a ração" tem
+    que dar BAIXA. No motor de main (v1.0, substring), "acidente" é substring
+    de "acidentalmente" e a mensagem virava ALTA (trauma) por engano — ver
+    scripts/avaliar_triagem.py e o relatório para a prova contra main."""
+    r = engine.classificar("acidentalmente derrubei a ração")
+    assert r.urgencia == "BAIXA"
+
+
+def test_acidente_isolado_continua_casando(engine: TriageEngine) -> None:
+    r = engine.classificar("meu pet sofreu um acidente feio")
+    assert r.urgencia == "ALTA"
+
+
+# ── LU-07 item 2: negação com janela curta ─────────────────────────────────────
+
+def test_nao_esta_vomitando_mais_nao_vira_media_mordida_nominal(engine: TriageEngine) -> None:
+    """Mordida nominal do brief LU-07: "ele não está vomitando mais" não pode
+    dar MEDIA por causa do vômito. No motor de main (sem negação), este texto
+    dava MEDIA — ver relatório para a prova contra main."""
+    r = engine.classificar("ele não está vomitando mais")
+    assert r.urgencia != "MEDIA"
+
+
+def test_negacao_simples_anula_categoria_media(engine: TriageEngine) -> None:
+    r = engine.classificar("ele nao esta com febre")
+    assert r.urgencia != "MEDIA"
+
+
+def test_negacao_nunca_anula_categoria(engine: TriageEngine) -> None:
+    r = engine.classificar("ele nunca teve diarreia")
+    assert r.urgencia != "MEDIA"
+
+
+def test_negacao_parou_de_anula_categoria(engine: TriageEngine) -> None:
+    r = engine.classificar("ele parou de vomitar")
+    assert r.urgencia != "MEDIA"
+
+
+def test_negacao_fora_da_janela_nao_anula(engine: TriageEngine) -> None:
+    """Gatilho de negação longe demais (>3 tokens antes) não anula a categoria."""
+    r = engine.classificar("nao sei o que aconteceu ontem mas hoje ele esta vomitando")
+    assert r.urgencia == "MEDIA"
+
+
+def test_nao_respira_continua_alta_estado_grave_negado(engine: TriageEngine) -> None:
+    """Mordida nominal do escopo LU-07: "não respira" É a keyword positiva de
+    dispneia (estado grave) — ALTA é imune a negação, então continua ALTA."""
+    r = engine.classificar("meu cachorro não respira")
+    assert r.urgencia == "ALTA"
+
+
+def test_negacao_nao_anula_alta_mesmo_fora_de_estado_grave_embutido(engine: TriageEngine) -> None:
+    """Decisão de projeto (documentada em triage_rules.py): ALTA é imune à
+    negação por inteiro, não só nas keywords que já embutem "não" — nunca
+    afrouxamos ALTA para ganhar acurácia (regra do ciclo)."""
+    r = engine.classificar("felizmente ele nao teve convulsão, só ficou bem quieto")
+    assert r.urgencia == "ALTA"
+
+
+# ── LU-07 fix wave 1, item A2: negação não atravessa oração ────────────────────
+# Achado da G2 (lu-07-revisao.md, Frente 3): a janela de 3 tokens ignorava
+# fim de oração, então um gatilho de negação numa oração rebaixava MEDIA
+# legítima em OUTRA oração da mesma mensagem. Pares mínimos: MESMA oração
+# (rebaixa) × OUTRA oração, separada por pontuação/conjunção (não rebaixa).
+# Escritos por mim (implementador), não vêm do conjunto cego da revisão.
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "ele nao esta vomitando",
+        "ele parou de vomitar",
+        "sem vomitar",
+        "ele nunca teve febre",
+    ],
+)
+def test_a2_negacao_mesma_oracao_rebaixa(engine: TriageEngine, texto: str) -> None:
+    r = engine.classificar(texto)
+    assert r.urgencia == "BAIXA"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "sem febre. vomitando",
+        "está sem comer e vomitando",
+        "não come, fraco demais",
+        "não sei, febre",
+        "sem apetite, mas vomitando o dia todo",
+        "não está com febre; está vomitando muito",
+    ],
+)
+def test_a2_negacao_em_outra_oracao_nao_rebaixa(engine: TriageEngine, texto: str) -> None:
+    """Gatilho de negação numa oração não pode anular sintoma de OUTRA
+    oração, mesmo dentro dos 3 tokens de distância — a oração termina em
+    pontuação (.,;!?) ou conjunção coordenativa (e, mas, porém, ou)."""
+    r = engine.classificar(texto)
+    assert r.urgencia == "MEDIA"
+
+
+def test_a2_mordida_volte_janela_antiga_e_negacao_cruza_oracao(
+    engine: TriageEngine,
+) -> None:
+    """Mordida nominal A2: se a janela voltar a ignorar fim de oração (regra
+    antiga: olhar só os 3 tokens crus antes da keyword), esta mensagem seria
+    incorretamente anulada, porque "sem" está a 3 tokens de "vomitando" só
+    que numa oração diferente, separada por ponto final."""
+    r = engine.classificar("sem febre. vomitando")
+    assert r.urgencia == "MEDIA"
+
+
+# ── LU-07 fix wave 1, item 2: vocabulário ALTA por categoria clínica ───────────
+# Achado da G2 (lu-07-revisao.md, Frente 2): o corpus original só cobria
+# vocabulário que o próprio time escreveu — mensagens reais com sinônimos
+# informais de sinais de emergência (dispneia, inconsciência, intoxicação,
+# trauma, retenção urinária, parto complicado, picada peçonhenta, abdome
+# distendido, hipertermia) não eram reconhecidas. Casos abaixo cobrem cada
+# categoria nova/expandida, escritos por mim a partir das categorias do
+# brief — não são as mensagens do conjunto cego da revisão.
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "meu cachorro não consegue respirar",
+        "ela ta respirando de boca aberta",
+        "notei a gengiva roxa dele",
+        "esta com a lingua azulada",
+        "ele não acorda de jeito nenhum",
+        "ela desmaiou do nada",
+        "ta caido sem reagir",
+        "meu cachorro comeu chocolate",
+        "ele comeu uva sem querer",
+        "acho que ele comeu uma pilha",
+        "meu gato sem fazer xixi ha 2 dias",
+        "ela ta fazendo forca sem sair nada",
+        "gata em trabalho de parto ha horas",
+        "o filhote preso não nasce",
+        "foi picada de cobra",
+        "a barriga inchada e dura, sem melhora",
+        "ele ta com golpe de calor",
+        "meu cachorro foi mordido por outro animal",
+    ],
+)
+def test_a_item2_vocabulario_categoria_clinica_retorna_alta(
+    engine: TriageEngine, texto: str
+) -> None:
+    r = engine.classificar(texto)
+    assert r.urgencia == "ALTA"
+
+
+def test_item2_negacao_nunca_rebaixa_nova_keyword_alta(engine: TriageEngine) -> None:
+    """"não consegue respirar" tem que ser ALTA — é a keyword positiva do
+    estado grave (dispneia), não uma negação de sintoma a ser anulada."""
+    r = engine.classificar("meu cachorro não consegue respirar")
+    assert r.urgencia == "ALTA"
+
+
+def test_item2_fronteira_de_palavra_sem_regressao_sanguessuga(
+    engine: TriageEngine,
+) -> None:
+    """Vocabulário novo não pode reabrir falso positivo de substring —
+    "sanguessuga" continua BAIXA (não casa a keyword "sangue" por token)."""
+    r = engine.classificar("achei uma sanguessuga no quintal")
+    assert r.urgencia == "BAIXA"
+
+
+def test_item2_fronteira_de_palavra_sem_regressao_afebril(engine: TriageEngine) -> None:
+    r = engine.classificar("ele esta afebril hoje")
+    assert r.urgencia == "BAIXA"
+
+
+# ── LU-07 item 3: versão das regras ────────────────────────────────────────────
+
+def test_versao_regras_e_1_3() -> None:
+    """LU-07 fix wave 2, item 2: versão sobe para 1.3 (≤ 10 bytes)."""
+    assert TRIAGE_RULES_VERSION == "1.3"
+    assert len(TRIAGE_RULES_VERSION.encode("utf-8")) <= 10
+
+
+# ── LU-07 fix wave 2, item 2: vocabulário por PADRÃO (combinação) ──────────────
+# Ruling do Felipe (15/09): a fix wave 1 cobriu os EXEMPLOS do brief anterior,
+# não o padrão — a sonda do maestro em `ccc3739` mostrou a maioria das
+# emergências ainda caindo em BAIXA. Casos abaixo exercitam COMBINACOES_ALTA
+# (verbo de ingestão × objeto tóxico, picada/mordida × animal, caiu × altura)
+# com frases NOVAS, escritas por mim, que nunca apareceram como frase inteira
+# em nenhuma keyword literal — provam generalização real, não mais um
+# exemplo memorizado.
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "meu cachorro lambeu veneno de rato",  # ingestão x objeto (lambeu+veneno, novo par)
+        "ele tomou remedio humano sem querer",  # tomou + remedio humano
+        "ela mastigou uma pilha",  # mastigou + pilha
+        "engoliu um comprimido inteiro",  # engoliu + comprimido
+        "foi picado por uma aranha no jardim",  # picada/mordida x animal
+        "levou uma mordida de rato",
+        "picou o escorpiao ele",  # ordem invertida do grupo_a/grupo_b
+        "meu gato caiu da janela do segundo andar",  # queda x altura
+        "ele caiu do telhado de manha",
+        "cachorro caiu da arvore",
+    ],
+)
+def test_item2_combinacao_generaliza_padroes_novos(engine: TriageEngine, texto: str) -> None:
+    r = engine.classificar(texto)
+    assert r.urgencia == "ALTA"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "comeu a racao toda",
+        "caiu no sono cedo hoje",
+        "tomou banho e ficou feliz",
+        "mordeu o brinquedo novo",
+        "lambeu a agua da tigela",
+        "engoliu rapido a comida",
+        "mastigou o osso de brinquedo",
+        "picou o dedo dele sem querer no portao",
+        "caiu a folha da planta perto dele",
+        "tomou sol na varanda de manha",
+    ],
+)
+def test_item2_supertriagem_verbos_sem_par_ficam_baixa_ou_media(
+    engine: TriageEngine, texto: str
+) -> None:
+    """Supertriagem (brief item 2): os mesmos verbos usados nas combinações
+    de ALTA, em frases inofensivas onde o OUTRO grupo (objeto tóxico/animal/
+    altura) não aparece na mesma oração — a combinação exige os dois lados,
+    então nada dispara ALTA por acidente."""
+    r = engine.classificar(texto)
+    assert r.urgencia in ("BAIXA", "MEDIA")
+
+
+def test_item2_combinacao_respeita_fronteira_de_oracao(engine: TriageEngine) -> None:
+    """Os dois grupos em orações DIFERENTES não combinam — mesma regra de
+    fronteira de oração do A2 (fix wave 1), aplicada à combinação nova."""
+    r = engine.classificar("ele comeu bastante hoje. depois vi uma pilha solta no chao")
+    assert r.urgencia != "ALTA"
+
+
+def test_item2_combinacao_nao_duplica_categoria_ja_literal(engine: TriageEngine) -> None:
+    """"picada de cobra" continua ALTA depois de remover a frase literal de
+    picada_peconhenta — agora via combinação picada_mordida."""
+    r = engine.classificar("foi picada de cobra na perna dele")
+    assert r.urgencia == "ALTA"
+
+
+def test_item2_queda_altura_substitui_frase_literal_removida(engine: TriageEngine) -> None:
+    """"caiu de altura" continua ALTA depois de remover a frase literal de
+    trauma — agora via combinação queda_altura ("caiu" + "altura")."""
+    r = engine.classificar("meu cão caiu de altura do telhado")
+    assert r.urgencia == "ALTA"
