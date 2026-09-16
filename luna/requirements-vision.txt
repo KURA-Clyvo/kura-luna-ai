@@ -1,0 +1,17 @@
+# === IA / Visão Computacional (extra opcional — LU-06: imagem enxuta) ===
+# Só necessário para `luna detect` (identificação de raça: PetDetector/BreedClassifier em
+# src/ai/). Sem isto instalado, a CLI e o resto da Luna (web/webhook do WhatsApp, lembretes de
+# vacina) funcionam normalmente — `luna detect` falha explícito com EXIT=2 pedindo este arquivo
+# (ver VisaoIndisponivelError em src/cli/main.py). Instalado junto com requirements.txt:
+# - no Docker, via `--build-arg WITH_VISION=true` (também instala libgl1/libglib2.0-0, exigidas
+#   pelo OpenCV em runtime);
+# - em dev, `pip install -r requirements.txt -r requirements-vision.txt` (ou use
+#   requirements-dev.txt, que já inclui os dois).
+ultralytics==8.3.0
+opencv-python-headless==4.10.0.84
+Pillow==10.4.0
+torch==2.4.1
+torchvision==0.19.1
+# breed_classifier.py/breed_service.py importam numpy diretamente (não só transitivo via
+# opencv/torch) — pinado explícito para não depender de qual dos dois arrasta qual versão.
+numpy==1.26.4

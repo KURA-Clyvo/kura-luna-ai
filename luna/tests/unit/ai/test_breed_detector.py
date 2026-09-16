@@ -1,9 +1,14 @@
 """Tests for PetDetector."""
-from unittest.mock import MagicMock, patch
-
 import pytest
 
-from src.ai.breed_detector import Deteccao, PetDetector, _CONF_THRESHOLD
+# LU-06: visão computacional é extra opcional (requirements-vision.txt) — sem ultralytics
+# instalado, este arquivo inteiro é pulado (declarado, não silencioso) em vez de falhar a
+# coleta com ModuleNotFoundError.
+pytest.importorskip("ultralytics", reason="requirements-vision.txt não instalado (LU-06)")
+
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+from src.ai.breed_detector import Deteccao, PetDetector, _CONF_THRESHOLD  # noqa: E402
 
 
 def _make_box(cls_id: int, conf: float, xyxy: list[float]) -> MagicMock:

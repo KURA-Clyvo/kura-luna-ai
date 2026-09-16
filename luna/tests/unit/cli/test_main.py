@@ -4,9 +4,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from src.cli.main import app
-from src.services.breed_service import ResultadoIdentificacao
+from src.cli.main import VisaoIndisponivelError, app
+
+# LU-06: importado de resultado_identificacao (sem cv2/numpy), não de src.services.breed_service
+# (que importa cv2/numpy no nível do módulo) — é isto que permite este arquivo coletar e passar
+# sem o extra requirements-vision.txt instalado.
 from src.services.notification_service import ResumoExecucao
+from src.services.resultado_identificacao import ResultadoIdentificacao
 
 runner = CliRunner(mix_stderr=True)
 
@@ -249,6 +253,54 @@ def test_detect_fecha_pool_mesmo_com_excecao(
         runner.invoke(app, ["detect", "foto.jpg"])
 
     mock_pool.close.assert_called_once()
+
+
+# ---- detect sem o extra de visão (LU-06) ---------------------------------
+
+
+def test_detect_exit_2_quando_extra_de_visao_ausente() -> None:
+    """`_create_breed_service` levanta VisaoIndisponivelError (extra não instalado, ou
+    checkpoints não configurados) → EXIT=2, distinto do EXIT=1 genérico, com a mensagem
+    explícita ecoada — não um traceback de ImportError."""
+    with patch(
+        f"{_MODULE}._create_breed_service",
+        side_effect=VisaoIndisponivelError(
+            "Recurso de visão computacional não instalado: rode "
+            "`pip install -r requirements-vision.txt`."
+        ),
+    ):
+        result = runner.invoke(app, ["detect", "foto.jpg"])
+
+    assert result.exit_code == 2
+    assert "requirements-vision.txt" in result.output
+
+
+def test_detect_exit_2_nao_fecha_pool_quando_factory_falha() -> None:
+    """Mesma garantia de test_run_job_nao_fecha_pool_quando_factory_falha: pool permanece None
+    quando a factory lança antes de criar o pool — close não deve ser chamado (nem AttributeError)."""
+    with patch(
+        f"{_MODULE}._create_breed_service",
+        side_effect=VisaoIndisponivelError("sem checkpoints"),
+    ):
+        result = runner.invoke(app, ["detect", "foto.jpg"])
+
+    assert result.exit_code == 2
+
+
+def test_create_breed_service_falha_sem_checkpoints_configurados() -> None:
+    """Unidade da checagem em si (não só via CLI mockada): settings com
+    YOLO_WEIGHTS_PATH/BREED_CLASSIFIER_WEIGHTS_PATH vazios (default — LU-06) levanta
+    VisaoIndisponivelError antes de tentar qualquer import pesado ou conexão Oracle."""
+    from src.cli.main import _create_breed_service
+
+    with patch(f"{_MODULE}.Settings") as mock_settings_cls:
+        mock_settings = MagicMock()
+        mock_settings.YOLO_WEIGHTS_PATH = ""
+        mock_settings.BREED_CLASSIFIER_WEIGHTS_PATH = ""
+        mock_settings_cls.return_value = mock_settings
+
+        with pytest.raises(VisaoIndisponivelError, match="não configurado"):
+            _create_breed_service()
 
 
 # ---- serve ---------------------------------------------------------------

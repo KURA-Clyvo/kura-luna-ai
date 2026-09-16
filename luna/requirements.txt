@@ -7,13 +7,6 @@ pydantic-settings==2.4.0
 # === Mensageria ===
 twilio==9.3.2
 
-# === IA / Visão Computacional ===
-ultralytics==8.3.0
-opencv-python-headless==4.10.0.84
-Pillow==10.4.0
-torch==2.4.1
-torchvision==0.19.1
-
 # === CLI / Job ===
 typer==0.12.5
 # Pinado abaixo de 8.2 — Click 8.2.0 removeu CliRunner(mix_stderr=...), usado em
@@ -28,3 +21,9 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 httpx==0.27.2
 python-multipart==0.0.9
+
+# === IA / Visão Computacional ===
+# LU-06 (imagem enxuta): movido para requirements-vision.txt — torch/ultralytics/opencv somam
+# ~9 GB e só são usados por `luna detect` (identificação de raça), que hoje não tem checkpoint em
+# produção. `src/web/app.py` e `src/services/inbound_message_service.py` (o caminho do webhook do
+# WhatsApp) nunca importam visão; ver requirements-vision.txt.

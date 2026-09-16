@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 app = typer.Typer(name="luna", help="Luna — IA proativa para clínicas veterinárias Kura.")
 
 
+class VisaoIndisponivelError(RuntimeError):
+    """`luna detect` sem o extra `requirements-vision.txt` instalado, ou sem os checkpoints
+    (`YOLO_WEIGHTS_PATH`/`BREED_CLASSIFIER_WEIGHTS_PATH`) configurados (LU-06 — imagem enxuta:
+    visão computacional é extra opcional, não faz parte da imagem/instalação padrão)."""
+
+
 def _create_lembrete_service() -> tuple["LembreteVacinaService", OracleConnectionPool]:
     """Composition root para o serviço de lembretes de vacinas.
 
@@ -42,14 +48,33 @@ def _create_lembrete_service() -> tuple["LembreteVacinaService", OracleConnectio
 
 
 def _create_breed_service() -> tuple["IdentificacaoRacaService", OracleConnectionPool]:
-    """Composition root para o serviço de identificação de raça."""
-    from src.ai.breed_classifier import BreedClassifier
-    from src.ai.breed_detector import PetDetector
-    from src.ai.recommender import RecomendacaoCuidados
-    from src.db.repositories.raca_repo import RacaRepository
-    from src.services.breed_service import IdentificacaoRacaService
+    """Composition root para o serviço de identificação de raça.
 
+    Levanta `VisaoIndisponivelError` (tratado em `detect()` com EXIT=2) em dois casos, em vez de
+    deixar vazar um `ModuleNotFoundError`/pydantic genérico (EXIT=1 indistinguível de qualquer
+    outra falha): checkpoints não configurados (default vazio — LU-06), ou o extra
+    `requirements-vision.txt` não instalado (imagem/instalação padrão não traz torch/ultralytics/cv2).
+    """
     settings = Settings()
+    if not settings.YOLO_WEIGHTS_PATH or not settings.BREED_CLASSIFIER_WEIGHTS_PATH:
+        raise VisaoIndisponivelError(
+            "Recurso de visão computacional não configurado: defina YOLO_WEIGHTS_PATH e "
+            "BREED_CLASSIFIER_WEIGHTS_PATH com os checkpoints baixados "
+            "(scripts/download_yolo_weights.py)."
+        )
+    try:
+        from src.ai.breed_classifier import BreedClassifier
+        from src.ai.breed_detector import PetDetector
+        from src.ai.recommender import RecomendacaoCuidados
+        from src.db.repositories.raca_repo import RacaRepository
+        from src.services.breed_service import IdentificacaoRacaService
+    except ImportError as exc:
+        raise VisaoIndisponivelError(
+            "Recurso de visão computacional não instalado: rode "
+            "`pip install -r requirements-vision.txt` (imagem Docker: build com "
+            "`--build-arg WITH_VISION=true`)."
+        ) from exc
+
     setup_logging(settings.LOG_LEVEL)
     pool = OracleConnectionPool(
         dsn=settings.ORACLE_DSN,
@@ -106,6 +131,11 @@ def detect(caminho: str) -> None:
 
         if resultado.imagem_anotada_path:
             typer.echo(f"\nImagem anotada salva em: {resultado.imagem_anotada_path}")
+    except VisaoIndisponivelError as exc:
+        # EXIT=2, distinto do EXIT=1 genérico abaixo — LU-06: mensagem explícita para o operador
+        # em vez de um traceback de import.
+        typer.echo(f"Erro: {exc}", err=True)
+        raise typer.Exit(code=2)
     except Exception as exc:
         logger.exception("Erro fatal em detect")
         typer.echo(f"Erro: {exc}", err=True)

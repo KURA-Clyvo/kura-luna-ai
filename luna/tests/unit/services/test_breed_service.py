@@ -1,11 +1,22 @@
 """Tests for IdentificacaoRacaService."""
-from unittest.mock import MagicMock, patch
-
-import numpy as np
 import pytest
 
-from src.ai.breed_detector import Deteccao
-from src.services.breed_service import IdentificacaoRacaService, ResultadoIdentificacao
+# LU-06: visão computacional é extra opcional (requirements-vision.txt) — sem os quatro
+# instalados, este arquivo inteiro é pulado (declarado, não silencioso) em vez de falhar a
+# coleta com ModuleNotFoundError. breed_service.py (cv2/numpy) importa breed_classifier.py
+# (+ torch/torchvision) e breed_detector.py (+ ultralytics) no nível do módulo.
+pytest.importorskip("cv2", reason="requirements-vision.txt não instalado (LU-06)")
+pytest.importorskip("numpy", reason="requirements-vision.txt não instalado (LU-06)")
+pytest.importorskip("torch", reason="requirements-vision.txt não instalado (LU-06)")
+pytest.importorskip("torchvision", reason="requirements-vision.txt não instalado (LU-06)")
+pytest.importorskip("ultralytics", reason="requirements-vision.txt não instalado (LU-06)")
+
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+import numpy as np  # noqa: E402
+
+from src.ai.breed_detector import Deteccao  # noqa: E402
+from src.services.breed_service import IdentificacaoRacaService, ResultadoIdentificacao  # noqa: E402
 
 
 def _make_service(
