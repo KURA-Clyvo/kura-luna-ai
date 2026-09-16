@@ -47,6 +47,21 @@ UPDATE NOTIFICACAO
 # ORA-01867). Chave de idempotência inclui ID_TUTOR (a view faz fan-out por
 # tutor — sem ID_TUTOR o 2º tutor de um pet compartilhado seria contado como
 # já enviado, ver lu-03-brief.md).
+#
+# F4-2 (lu-03-revisao.md / LU-04): 'FALHA' entrou no IN além de 'PENDENTE' e
+# 'ENVIADA'. Sem isso, uma falha PERMANENTE (número inválido, credencial
+# Twilio rejeitada) era reenviada E reinserida em NOTIFICACAO a cada
+# execução — medido: 2º run-job no mesmo dia gerava +2 chamadas ao Twilio e
+# +2 linhas para o mesmo tutor×pet×vacina, e o app do tutor mostrava
+# lembretes duplicados nunca entregues (GET /tutor/notificacoes). Decisão:
+# reaproveitar a JANELA (mesma de 'ENVIADA'/'PENDENTE', default 24h) em vez
+# de reaproveitar a LINHA (UPDATE) ou contar tentativas — é a mudança mínima
+# que satisfaz o aceite ("2º disparo em FALHA ⇒ 0 linhas novas, 0 chamadas
+# ao gateway") sem introduzir uma tabela/coluna de contagem de tentativas.
+# Efeito colateral aceito: uma falha permanente só tenta de novo depois que a
+# janela expira (no scheduler diário, no dia seguinte) — é exatamente "no
+# máximo 1 tentativa por dia", comportamento adequado para um lembrete (não
+# uma notificação crítica que precise de retry agressivo).
 _SQL_EXISTS = """
 SELECT COUNT(*)
   FROM NOTIFICACAO
@@ -54,7 +69,7 @@ SELECT COUNT(*)
    AND ID_PET     = :id_pet
    AND DS_TIPO    = 'LEMBRETE_VACINA'
    AND DS_TITULO  LIKE :titulo_like
-   AND ST_ENVIO   IN ('PENDENTE', 'ENVIADA')
+   AND ST_ENVIO   IN ('PENDENTE', 'ENVIADA', 'FALHA')
    AND DT_CRIACAO >= SYSTIMESTAMP - NUMTODSINTERVAL(:horas, 'HOUR')
 """
 
@@ -132,7 +147,11 @@ class NotificacaoRepository:
         nm_vacina: str,
         janela_horas: int = 24,
     ) -> bool:
-        """Retorna True se já existe notificação enviada/pendente na janela indicada (idempotência)."""
+        """Retorna True se já existe notificação enviada/pendente/falha na janela indicada (idempotência).
+
+        F4-2: inclui `ST_ENVIO='FALHA'` de propósito — evita reenviar/reinserir
+        uma falha permanente a cada execução dentro da mesma janela (default 24h).
+        """
         with self._pool.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(

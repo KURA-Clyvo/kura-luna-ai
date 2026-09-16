@@ -1,8 +1,46 @@
 """Twilio WhatsApp gateway — Protocol + implementação concreta."""
+import re
 from typing import Protocol, runtime_checkable
 
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
+
+# G2-1 (herdado da G2 do LU-09, ver lu-04-brief.md): a versão anterior desta
+# função montava sempre `whatsapp:+55{para}` -- um número que já chegasse com
+# DDI (`55...`, 12-13 dígitos, formato real medido em ~30% dos tutores no
+# Oracle do compose) virava `+5555...`, que a Twilio recusa (502). Normalizado
+# num único lugar (aqui), usado tanto por `/whatsapp/enviar` quanto pelo
+# lembrete de vacina (LU-04) -- os dois únicos chamadores de `enviar_whatsapp`.
+_APENAS_DIGITOS = re.compile(r"\D")
+
+
+def normalizar_telefone_whatsapp(numero: str) -> str:
+    """Normaliza um número de telefone brasileiro para o formato Twilio WhatsApp.
+
+    Aceita, medidos como formatos reais coexistindo no Oracle do compose
+    (`TUTOR.DS_TELEFONE`/`DS_WHATSAPP`, ver lu-04-brief.md):
+      - já com prefixo ``whatsapp:`` -- devolvido sem alteração.
+      - ``+55DDDNNNNNNNNN`` / ``55DDDNNNNNNNNN`` (12-13 dígitos, já com DDI).
+      - nacional ``DDDNNNNNNNNN`` (10-11 dígitos, sem DDI) -- prefixado com 55.
+
+    Qualquer outro formato levanta ``MessagingError`` **sem** o número na
+    mensagem (LGPD) -- nunca deixa um número não reconhecido seguir para a
+    Twilio silenciosamente malformado.
+    """
+    if numero.startswith("whatsapp:"):
+        return numero
+
+    digitos = _APENAS_DIGITOS.sub("", numero)
+
+    if len(digitos) in (12, 13) and digitos.startswith("55"):
+        return f"whatsapp:+{digitos}"
+    if len(digitos) in (10, 11):
+        return f"whatsapp:+55{digitos}"
+
+    raise MessagingError(
+        "Número de telefone em formato não reconhecido para envio WhatsApp",
+        codigo="TELEFONE_FORMATO_INVALIDO",
+    )
 
 
 class MessagingError(Exception):
@@ -40,13 +78,16 @@ class TwilioGateway:
         """Envia mensagem WhatsApp e retorna o SID.
 
         Args:
-            para: número do destinatário no formato '55119XXXXXXXX' (sem whatsapp:).
+            para: número do destinatário -- aceita ``+55DDDNNNNNNNNN``,
+                ``55DDDNNNNNNNNN``, nacional ``DDDNNNNNNNNN`` ou já com
+                prefixo ``whatsapp:`` (ver `normalizar_telefone_whatsapp`).
             mensagem: corpo da mensagem.
 
         Raises:
-            MessagingError: se o Twilio retornar erro ou houver falha de rede.
+            MessagingError: se o número estiver em formato não reconhecido,
+                se o Twilio retornar erro ou se houver falha de rede.
         """
-        to = f"whatsapp:+55{para}" if not para.startswith("whatsapp:") else para
+        to = normalizar_telefone_whatsapp(para)
         try:
             message = self._client.messages.create(
                 body=mensagem,

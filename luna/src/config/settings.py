@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     # Nunca logar nem retornar em response. Custo ~$0.006/min de áudio.
     OPENAI_API_KEY: str = ""
 
+    # Scheduler de lembrete de vacina (LU-04) — desligado por padrão: com mais
+    # de uma réplica do serviço, ligar em todas duplicaria o envio diário.
+    # Ligar em UMA réplica só. O gatilho manual (POST /jobs/lembrete-vacina/
+    # executar) funciona independentemente desta flag.
+    LUNA_SCHEDULER_ENABLED: bool = False
+    LUNA_SCHEDULER_HORA: int = 8
+
     @field_validator("KURA_API_BASE_URL")
     @classmethod
     def _validate_kura_url(cls, v: str) -> str:

@@ -7,16 +7,19 @@ from typing import Annotated, TYPE_CHECKING
 
 import httpx
 from fastapi import Depends, Header, HTTPException, Request, status
+from twilio.base.exceptions import TwilioException
 
 from src.ai.triage_engine import TriageEngine
 from src.config.settings import Settings
+from src.db.connection import OracleConnectionPool
 from src.db.repositories.log_erro_repo import LogErroRepository
 from src.integration.kura_client import KuraClient
 from src.messaging.twilio_client import TwilioGateway
+from src.services.lembrete_vacina_factory import criar_lembrete_service
+from src.services.notification_service import LembreteVacinaService
 from src.services.transcricao_service import WhisperGateway
 
 if TYPE_CHECKING:
-    from src.db.connection import OracleConnectionPool
     from src.services.inbound_message_service import InboundMessageService
 
 
@@ -100,6 +103,34 @@ def get_log_repo(request: Request) -> LogErroRepository:
     """Constrói LogErroRepository com pool do lifespan (fail-safe se pool for None)."""
     pool = get_pool(request)
     return LogErroRepository(pool)  # type: ignore[arg-type]
+
+
+def get_lembrete_service(
+    settings: Annotated[Settings, Depends(get_settings)],
+    pool: Annotated[OracleConnectionPool | None, Depends(get_pool)],
+) -> LembreteVacinaService:
+    """Constrói LembreteVacinaService para o gatilho manual (LU-04).
+
+    Sem pool Oracle disponível (lifespan tolerou a falha, ver `get_pool`):
+    503 declarado — nunca deixa o handler tentar usar um pool None.
+
+    F4-1: se a credencial Twilio estiver ausente/inválida, `TwilioGateway`
+    (chamado dentro de `criar_lembrete_service`) levanta `TwilioException`
+    no construtor do SDK — convertido aqui em 503 com motivo, nunca um 500
+    cru nem crash do processo.
+    """
+    if pool is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Oracle indisponível — tente novamente mais tarde",
+        )
+    try:
+        return criar_lembrete_service(settings, pool)
+    except TwilioException:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Mensageria indisponível — credencial Twilio ausente ou inválida",
+        ) from None
 
 
 def get_inbound_service(

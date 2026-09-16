@@ -568,6 +568,14 @@ correto medindo a coisa errada.
 produção. O container executa apenas o servidor FastAPI. O agendamento diário descrito na
 documentação anterior **não está ativo**.
 
+> 🟢 **Atualização (LU-04):** o `ORA-00904` acima foi corrigido pela V21 (LU-02) + reescrita dos
+> repositórios (LU-03) — `VacinaRepository`/`NotificacaoRepository` hoje consultam colunas reais,
+> provado contra Oracle real (`tests/contract/`). O agendamento diário passou a existir de fato:
+> `LUNA_SCHEDULER_ENABLED=true` liga um `AsyncIOScheduler` dentro do `lifespan` do FastAPI (sem
+> processo separado), e `POST /jobs/lembrete-vacina/executar` dispara o mesmo ciclo sob demanda.
+> `LembreteVacinaJob.iniciar_scheduler` (o `BlockingScheduler` citado acima) foi **removido** — a
+> nota "não tem nenhum chamador" descrevia exatamente por que ele não fazia sentido manter.
+
 ### 9.4 O que os números de teste realmente dizem
 
 | Medição | Resultado |

@@ -100,7 +100,13 @@ luna run-job
 
 Executa imediatamente o ciclo de lembretes: lê vacinas com até 7 dias restantes, verifica idempotência (janela 24 h), cria notificação `PENDENTE`, dispara WhatsApp e marca `ENVIADA` ou `FALHA`.
 
-> Para execução agendada (diária às 08h BRT), use `LembreteVacinaJob.iniciar_scheduler()` diretamente via Python.
+> Execução agendada (LU-04): defina `LUNA_SCHEDULER_ENABLED=true` (default `false`) no `.env` do
+> servidor HTTP — o `AsyncIOScheduler` roda dentro do `lifespan` do FastAPI, diariamente às
+> `LUNA_SCHEDULER_HORA` (default 8h BRT), sem processo separado. Ligar em **uma réplica só**: mais
+> de uma com a flag `true` duplica o envio. Independente da flag, `POST
+> /jobs/lembrete-vacina/executar` (com `X-API-Key`) dispara o mesmo ciclo sob demanda — útil para
+> demonstração/operação manual. `LembreteVacinaJob.iniciar_scheduler` (BlockingScheduler síncrono)
+> foi removido: não tinha chamador em produção (o container só roda o servidor FastAPI).
 
 ### `luna detect <caminho>` — Identificação de raça
 
