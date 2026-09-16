@@ -65,17 +65,27 @@ async def test_tick_ignora_se_pool_none() -> None:
     mock_factory.assert_not_called()
 
 
-async def test_tick_ignora_sem_derrubar_processo_quando_twilio_exception() -> None:
+async def test_tick_ignora_sem_derrubar_processo_quando_twilio_exception(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """F4-1: sem credencial Twilio, a fábrica levanta TwilioException -- o
-    tick deve capturar, logar e retornar (nunca propagar)."""
+    tick deve capturar, logar e retornar (nunca propagar).
+
+    A6 (achado MENOR da G2, lu-04-revisao.md): a versão anterior deste teste
+    só provava o "segue" (não levantou) -- um tick que engolisse a falha em
+    total silêncio também passaria. Agora também prova o "loga": a linha de
+    warning tem que existir, e sem telefone/conteúdo (LGPD)."""
     app = _fake_app()
 
-    with patch(
-        "src.jobs.lembrete_vacina_job.criar_lembrete_service",
-        side_effect=TwilioException("Credentials are required to create a TwilioClient"),
-    ):
-        await executar_tick_lembrete_vacina(app)  # type: ignore[arg-type]
+    with caplog.at_level("WARNING"):
+        with patch(
+            "src.jobs.lembrete_vacina_job.criar_lembrete_service",
+            side_effect=TwilioException("Credentials are required to create a TwilioClient"),
+        ):
+            await executar_tick_lembrete_vacina(app)  # type: ignore[arg-type]
     # não levantou -- se chegou aqui, passou.
+    assert "credencial Twilio ausente/inválida" in caplog.text
+    assert "Credentials are required" not in caplog.text  # nunca o texto cru da exceção
 
 
 async def test_tick_executa_servico_quando_tudo_disponivel() -> None:

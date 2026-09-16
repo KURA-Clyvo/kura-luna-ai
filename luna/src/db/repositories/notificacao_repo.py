@@ -54,14 +54,28 @@ UPDATE NOTIFICACAO
 # execução — medido: 2º run-job no mesmo dia gerava +2 chamadas ao Twilio e
 # +2 linhas para o mesmo tutor×pet×vacina, e o app do tutor mostrava
 # lembretes duplicados nunca entregues (GET /tutor/notificacoes). Decisão:
-# reaproveitar a JANELA (mesma de 'ENVIADA'/'PENDENTE', default 24h) em vez
-# de reaproveitar a LINHA (UPDATE) ou contar tentativas — é a mudança mínima
-# que satisfaz o aceite ("2º disparo em FALHA ⇒ 0 linhas novas, 0 chamadas
-# ao gateway") sem introduzir uma tabela/coluna de contagem de tentativas.
-# Efeito colateral aceito: uma falha permanente só tenta de novo depois que a
-# janela expira (no scheduler diário, no dia seguinte) — é exatamente "no
-# máximo 1 tentativa por dia", comportamento adequado para um lembrete (não
-# uma notificação crítica que precise de retry agressivo).
+# reaproveitar a JANELA (mesma de 'ENVIADA'/'PENDENTE') em vez de reaproveitar
+# a LINHA (UPDATE) ou contar tentativas — é a mudança mínima que satisfaz o
+# aceite ("2º disparo em FALHA ⇒ 0 linhas novas, 0 chamadas ao gateway") sem
+# introduzir uma tabela/coluna de contagem de tentativas.
+#
+# LU-04 fix wave 1 (ruling do Felipe, 15/09): a janela que o chamador de
+# produção passa (`notification_service._JANELA_IDEMPOTENCIA_HORAS`) deixou
+# de ser 24h fixo e virou o período INTEIRO de antecedência do lembrete
+# (168h = 7 dias) -- ver comentário em `notification_service.py`. Isso muda a
+# consequência deste parágrafo: **decisão explícita -- FALHA continua elegível
+# a nova tentativa (permanece no IN), mas agora só depois que os 7 dias de
+# antecedência expiram** (ou seja, na prática, só na próxima vez que a mesma
+# vacina entrar na janela de aviso de um novo ciclo, não no dia seguinte).
+# Consequência para o tutor: uma falha PERMANENTE (número inválido) nunca é
+# retentada dentro do mesmo ciclo de aviso -- consistente com "um lembrete por
+# vacina" (uma tentativa, não uma entrega garantida). Uma falha TRANSIENTE
+# (Twilio fora do ar por alguns minutos) também não é retentada nesse ciclo --
+# é o trade-off aceito pela ruling: menos duplicata custa mais que uma
+# segunda chance para uma falha rara e temporária. O parâmetro
+# `janela_horas` desta função continua com default 24h só para não quebrar
+# chamadores/testes que não passam o argumento explicitamente -- produção
+# SEMPRE passa o valor derivado da antecedência (nunca o default).
 _SQL_EXISTS = """
 SELECT COUNT(*)
   FROM NOTIFICACAO
@@ -150,7 +164,13 @@ class NotificacaoRepository:
         """Retorna True se já existe notificação enviada/pendente/falha na janela indicada (idempotência).
 
         F4-2: inclui `ST_ENVIO='FALHA'` de propósito — evita reenviar/reinserir
-        uma falha permanente a cada execução dentro da mesma janela (default 24h).
+        uma falha permanente a cada execução dentro da mesma janela.
+
+        `janela_horas` tem default 24h só para chamadores que não o
+        especificam (ex.: testes deste arquivo). O chamador de produção
+        (`LembreteVacinaService.executar`, LU-04 fix wave 1) SEMPRE passa o
+        período inteiro de antecedência do lembrete (168h), nunca o default
+        — ver comentário acima do `_SQL_EXISTS` e em `notification_service.py`.
         """
         with self._pool.get_connection() as conn:
             with conn.cursor() as cursor:

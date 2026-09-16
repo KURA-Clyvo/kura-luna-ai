@@ -9,8 +9,12 @@ from twilio.rest import Client
 # função montava sempre `whatsapp:+55{para}` -- um número que já chegasse com
 # DDI (`55...`, 12-13 dígitos, formato real medido em ~30% dos tutores no
 # Oracle do compose) virava `+5555...`, que a Twilio recusa (502). Normalizado
-# num único lugar (aqui), usado tanto por `/whatsapp/enviar` quanto pelo
-# lembrete de vacina (LU-04) -- os dois únicos chamadores de `enviar_whatsapp`.
+# num único lugar (aqui) -- ponto único confirmado por grep (lu-04-revisao.md
+# frente 4). São 4 call sites de `enviar_whatsapp` em 3 módulos (achado A4 da
+# G2, não 2 como uma versão anterior deste comentário dizia):
+# `inbound_message_service.py` (:177 e :221, resposta automática da
+# triagem), `notification_service.py` (:105, lembrete de vacina, LU-04) e
+# `whatsapp.py` (:51, endpoint `/whatsapp/enviar`) -- todos passam por aqui.
 _APENAS_DIGITOS = re.compile(r"\D")
 
 
