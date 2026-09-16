@@ -37,7 +37,7 @@ graph TB
         IMS["InboundMessageService<br/><i>orquestração resiliente</i>"]
 
         subgraph ia["Componentes de IA"]
-            TE["<b>TriageEngine</b><br/>motor de regras léxico<br/><i>11 categorias · v1.0</i>"]
+            TE["<b>TriageEngine</b><br/>motor de regras léxico<br/><i>11 categorias · v1.3</i>"]
             SOAP["<b>montar_soap_draft</b><br/>NLP por vocabulário clínico<br/><i>S · O · A · P</i>"]
             YOLO["<b>PetDetector</b><br/>YOLOv8n — detecção"]
             MNET["<b>BreedClassifier</b><br/>MobileNetV3 — 35 raças"]
@@ -285,7 +285,64 @@ aquele processo nunca usa.
 
 ---
 
-## 6. Decisões de design
+## 6. Fila de triagem, lembrete de vacina e o scheduler (`LU-04`/`LU-08`)
+
+### 6.1 Fila de triagem — leitura pelo app da clínica
+
+A Luna **não expõe** a fila; quem consulta é o app da clínica, direto no `.NET`, por JWT:
+
+```
+GET /api/v1/luna/triagens   (Authorization: Bearer <JWT de clínica>)
+```
+
+`idClinica` sai sempre do token (`IClinicaContext`), nunca de parâmetro de URL — isolamento
+multi-tenant provado por mutação no G4 (`LU-16`, duas mutações mordendo: predicado primário e
+o `IdClinica` do JOIN com `INTERACAO_CANAL`).
+
+### 6.2 Lembrete de vacina — job, gatilho manual e scheduler
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as AsyncIOScheduler<br/>(lifespan, opcional)
+    participant M as Gatilho manual<br/>POST /jobs/lembrete-vacina/executar
+    participant L as LembreteVacinaService
+    participant O as Oracle · VW_VACINAS_VENCENDO
+    participant TW as TwilioGateway
+
+    alt LUNA_SCHEDULER_ENABLED=true
+        S->>L: tick diário, hora = LUNA_SCHEDULER_HORA (default 8)
+    else scheduler desligado (default)
+        M->>L: chamada sob demanda (X-API-Key)
+    end
+    L->>O: SELECT vacinas a vencer (janela de dias configurada)
+    L->>L: idempotência por VACINA — 1 lembrete por vacina, não por 24h fixo
+    alt Twilio configurado
+        L->>TW: envia lembrete
+        TW-->>L: sid
+        L->>O: INSERT NOTIFICACAO (ENVIADA)
+    else credencial ausente
+        L-->>M: 503 declarado {"detail":"Mensageria indisponível..."}
+        Note over L: nasce ANTES do serviço rodar — 0 linha em NOTIFICACAO
+    end
+```
+
+- **`LUNA_SCHEDULER_ENABLED` tem default `false`** (`src/config/settings.py:43`) — o container
+  padrão **não** dispara lembrete sozinho; só o gatilho manual (`POST
+  /jobs/lembrete-vacina/executar`) roda, e só quando chamado. Ligar o scheduler é decisão
+  explícita de ambiente, para não rodar em mais de uma réplica.
+- **Idempotência por vacina** (ruling do Felipe, 15/09): um `asyncio.Lock` evita o tick e o
+  gatilho manual rodarem simultaneamente; a janela de idempotência é derivada da antecedência
+  configurada (`24 × dias_antecedência` horas), não um valor fixo de 24h.
+- **Verificado no G4 (`LU-16`), e é o estado real desta máquina:** com `TWILIO_SID`/`TWILIO_TOKEN`
+  vazios no processo, o gatilho devolve `503` **honesto** (nunca `500` cru) e **nenhuma linha**
+  é gravada em `NOTIFICACAO` — a falha nasce na dependência, antes do serviço rodar. O ciclo
+  completo (`NOTIFICACAO` com a clínica certa, 2º disparo bloqueado, tutor vendo no app) **não
+  foi verificado ao vivo** nesta máquina; ver `IA_DEFINICAO.md` §9 e o ledger `lu-16-revisao.md`.
+
+---
+
+## 7. Decisões de design
 
 | Decisão | Alternativa descartada | Por quê |
 |---|---|---|

@@ -11,7 +11,7 @@ Este repositório contém o microserviço **Luna** — responsável pela comunic
 Luna é o serviço Python que opera em dois eixos independentes:
 
 1. **Lembretes de vacinas via WhatsApp** — lê vacinas próximas do vencimento no Oracle, cria registros de notificação e dispara mensagens pelo Twilio Sandbox.
-2. **Identificação de raça por foto** — detecta cão/gato com YOLOv8n, classifica a raça com MobileNetV3 e retorna recomendações clínicas.
+2. **Identificação de raça por foto** — 🟡 extra opcional (`--build-arg WITH_VISION=true`), fora da imagem padrão. Detecta cão/gato com YOLOv8n, classifica a raça com MobileNetV3 e retorna recomendações clínicas — ver `luna/README.md` e `luna/docs/IA_DEFINICAO.md` §9.2.
 3. **Recepção bidirecional de mensagens (v2.0)** — servidor FastAPI recebe mensagens WhatsApp, classifica urgência por triagem de sintomas e aciona o time veterinário.
 
 ---
