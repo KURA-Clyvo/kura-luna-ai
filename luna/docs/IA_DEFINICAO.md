@@ -150,8 +150,9 @@ numa decisão clínica*.
 É o coração da entrega. Recebe o texto livre que o tutor escreveu no WhatsApp e devolve
 uma classificação de urgência com rastro completo.
 
-**Base de conhecimento versionada** (`TRIAGE_RULES_VERSION = "1.0"`) — **11 categorias
-clínicas** distribuídas em três níveis:
+**Base de conhecimento versionada** (`TRIAGE_RULES_VERSION` — hoje **`"1.3"`**, medido em
+`src/ai/triage_rules.py:3`; o `1.0` de versões antigas deste documento envelheceu, ver §9.5
+para a avaliação da versão atual) — **11 categorias clínicas** distribuídas em três níveis:
 
 | Nível | Pontos | Categorias |
 |---|---|---|
@@ -592,6 +593,58 @@ A falha local é `test_smoke.py::test_all_modules_importable`, por ausência de
 **A leitura honesta:** os testes cobrem bem a lógica de decisão (triagem, DTOs, cliente
 HTTP, roteadores). Eles **não cobrem**, e não pretendem cobrir, a integração com Oracle
 real, com Twilio real ou com a Whisper real. Todos os três são simulados.
+
+> 🟢 **Atualização de fechamento do ciclo LU (`main` `24b6b56`):** a tabela acima é de
+> 07/09/2026 e ficou pequena — a suíte cresceu com `LU-01`→`LU-16`. Medido no merge final
+> (fonte: `.superpowers/sdd/KURA_BACKLOG_LUNA_AI/progress.md`, Sessão 7): **540 testes, 0
+> falhas** (506 em `tests/unit` + 34 no restante, somados em 2 partes por limite de memória
+> da máquina de CI local). A falha histórica de `test_smoke.py::test_all_modules_importable`
+> **sumiu** — o módulo de visão computacional virou import preguiçoso (`LU-06`), então o
+> teste de smoke passa sem `torch`/`ultralytics` instalados. É a 1ª vez neste projeto que a
+> suíte da Luna fecha com 0 falhas, sem depender de Python 3.12.
+
+### 9.5 Avaliação do motor de triagem — dois corpora, e os dois sempre juntos
+
+> ⚠️ **Regra desta seção: nenhum número dela aparece sozinho.** Um `0,0%` isolado numa tela
+> é um número de palco esperando ser copiado sem a ressalva que o acompanha.
+
+**Corpus escrito pelo próprio time** (`tests/fixtures/triagem_corpus_v1.jsonl`, autoria: LU-07 e
+sua fix wave 1 — **não é de veterinário nem de tutor real**, ver `tests/fixtures/README.md`):
+
+```
+$ cd luna && PYTHONPATH=. python scripts/avaliar_triagem.py
+### Avaliação — 1.3 (TRIAGE_RULES_VERSION = "1.3")
+Corpus: 147 mensagens · Acurácia: 99,3% (146/147)
+Subtriagem de ALTA: 0,0% (0/74) · Supertriagem: 1,4% (1/73)
+EXIT=0
+```
+(reexecutado para escrever este documento, saída idêntica à do script)
+
+**Conjunto cego, independente** (61 mensagens, escritas por um revisor que **não tinha visto**
+`triage_rules.py`/`triage_engine.py` antes de escrevê-las — commit `fc18620`, feito **antes**
+de abrir qualquer arquivo do motor. Fonte:
+`.superpowers/sdd/KURA_BACKLOG_LUNA_AI/lu-07-revisao.md`, seção "Re-G2 (Opus, sessão 7,
+2026-09-15) — conjunto cego NOVO"):
+
+| Métrica (61 msgs do cego, 35 rotuladas ALTA = 27 dentro das categorias do motor + 8 fora) | v1.0 (`e67137a`) | v1.3, mesclada em `main` (`975f29b`) |
+|---|---|---|
+| Subtriagem ALTA — dentro das categorias | 25/27 | 25/27 |
+| Subtriagem ALTA — fora das categorias | 8/8 | 8/8 |
+
+⇒ **2 de 35 mensagens ALTA reconhecidas pelo vocabulário — idênticas, bit a bit, entre as duas
+versões do motor.** Duas fix waves de vocabulário produziram ganho zero fora das frases escritas
+pelo próprio time — é a 3ª medição seguida, por instrumento diferente, dizendo a mesma coisa
+(G2 original, sonda do maestro, re-G2).
+
+**O que protege o tutor não é o vocabulário reconhecido — é a rede de segurança da resposta.**
+Medido contra o `InboundMessageService` real (mock só nas fronteiras HTTP), 33 mensagens ALTA
+perdidas pelo classificador × 4 cenários (tutor conhecido, desconhecido, timeout na busca,
+timeout no registro) = **132 respostas geradas; orientação de emergência presente em 132,
+ausente em 0** (`EXIT=0`, fonte: `progress.md`, Frente 11 da re-G2). Toda resposta não-`ALTA`
+carrega `_ORIENTACAO_EMERGENCIA` (`src/services/inbound_message_service.py`) — mesmo quando o
+motor não reconheceu nenhum sintoma. **A conclusão honesta: o classificador ordena a fila da
+clínica; quem garante que nenhuma emergência real fique sem orientação de procurar atendimento
+é a resposta padrão, não a cobertura do vocabulário.**
 
 ---
 
