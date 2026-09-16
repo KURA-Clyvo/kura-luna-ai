@@ -80,12 +80,32 @@ def get_kura_client(
 def get_twilio_gateway(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> TwilioGateway:
-    """Constrói TwilioGateway com credenciais do Settings."""
-    return TwilioGateway(
-        account_sid=settings.TWILIO_SID,
-        auth_token=settings.TWILIO_TOKEN,
-        from_number=settings.TWILIO_FROM_NUMBER,
-    )
+    """Constrói TwilioGateway com credenciais do Settings.
+
+    LU-16 G4 (achado A3, Important): sem isto, credencial Twilio ausente/inválida
+    fazia `TwilioGateway.__init__` levantar `TwilioException` DENTRO da resolução
+    de dependência do FastAPI — antes do handler de `POST /whatsapp/enviar` rodar,
+    então o `try/except MessagingError` do próprio handler nunca via a exceção, e
+    ela escapava como 500 cru (`{"error":"internal server error"}`). A dependência
+    irmã, `get_lembrete_service` (logo abaixo), já tratava exatamente esta mesma
+    exceção — medido lado a lado, mesma causa raiz, mesmo container, mesmo minuto:
+    502 declarado (`GET /jobs/lembrete-vacina/executar`) contra 500 cru
+    (`POST /whatsapp/enviar`). Mesmo padrão aqui, sem duplicar a regra fora deste
+    par: 503 com motivo, `from None` (não reimprime a exceção original — nunca há
+    SID/token/telefone no argumento de `TwilioException`, mas `from None` também
+    corta a cadeia de causa por padrão, mesma prática do resto do projeto).
+    """
+    try:
+        return TwilioGateway(
+            account_sid=settings.TWILIO_SID,
+            auth_token=settings.TWILIO_TOKEN,
+            from_number=settings.TWILIO_FROM_NUMBER,
+        )
+    except TwilioException:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Mensageria indisponível — credencial Twilio ausente ou inválida",
+        ) from None
 
 
 def get_whisper_gateway(
