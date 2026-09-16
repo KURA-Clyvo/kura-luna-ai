@@ -14,6 +14,25 @@ logger = logging.getLogger(__name__)
 
 _DIAS_ANTECEDENCIA = 7
 
+# LU-04 fix wave 1 (ruling do Felipe, 15/09, sobre achado A3 da G2 da LU-04):
+# "o tutor recebe UM lembrete por vacina". A trava de idempotencia do repo
+# (`NotificacaoRepository.existe_pendente_para_vacina`) tinha default de 24h,
+# enquanto a view avisa a vacina com `_DIAS_ANTECEDENCIA` (7) dias de
+# antecedencia e o scheduler (LU-04) roda o cron 1x/dia -- medido no Oracle
+# real (lu-04-revisao.md, sonda de A3): uma linha de 30h cai FORA de uma
+# janela de 24h, entao no 3o dia o predicado deixa de achar a notificacao do
+# 1o dia e o lote cria linha nova + chama o Twilio de novo -- 3 a 4
+# lembretes iguais ao longo dos 7 dias de antecedencia.
+#
+# Forma escolhida: (a) do brief -- janela DERIVADA desta constante
+# (`24 * _DIAS_ANTECEDENCIA` = 168h), nunca um `168` escrito a mao. A forma
+# (b) (chave de negocio por `dt_proxima_dose`) foi descartada porque
+# NOTIFICACAO nao tem coluna equivalente (ver `_SQL_INSERT` em
+# `notificacao_repo.py` -- so ID_CLINICA/ID_TUTOR/ID_PET/DS_TITULO/
+# DS_MENSAGEM/DS_CANAL/DS_TIPO/ST_ENVIO) e criar uma exigiria migration nova
+# (V22+), fora do escopo desta fix wave.
+_JANELA_IDEMPOTENCIA_HORAS = 24 * _DIAS_ANTECEDENCIA
+
 
 @dataclass(frozen=True, slots=True)
 class ResumoExecucao:
@@ -76,6 +95,7 @@ class LembreteVacinaService:
                     id_tutor=vacina.id_tutor,
                     id_pet=vacina.id_pet,
                     nm_vacina=vacina.nm_vacina,
+                    janela_horas=_JANELA_IDEMPOTENCIA_HORAS,
                 ):
                     ja_enviadas += 1
                     continue

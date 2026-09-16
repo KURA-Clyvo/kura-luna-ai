@@ -6,7 +6,12 @@ import pytest
 
 from src.db.models.vacina_vencendo import VacinaVencendo
 from src.messaging.twilio_client import MessagingError
-from src.services.notification_service import LembreteVacinaService, ResumoExecucao
+from src.services.notification_service import (
+    _DIAS_ANTECEDENCIA,
+    _JANELA_IDEMPOTENCIA_HORAS,
+    LembreteVacinaService,
+    ResumoExecucao,
+)
 
 
 def _vacina(
@@ -141,6 +146,61 @@ def test_idempotencia_total_nao_chama_twilio() -> None:
     twilio.enviar_whatsapp.assert_not_called()
     assert resumo.ja_enviadas == 2
     assert resumo.enviadas == 0
+
+
+# --- LU-04 fix wave 1 (ruling do Felipe, 15/09): 1 lembrete por vacina ---
+# achado A3 da G2 (lu-04-revisao.md): janela de 24h fixo x cron diario x
+# view de 7 dias de antecedencia gerava 3-4 lembretes iguais.
+
+
+def test_janela_de_idempotencia_e_derivada_da_antecedencia_nao_24_fixo() -> None:
+    """Item 1/2 do brief da fix wave 1: a janela passada ao repo tem que ser
+    o periodo INTEIRO de antecedencia (`24 * _DIAS_ANTECEDENCIA` = 168h),
+    nunca um `24` fixo escrito a mao -- e nunca um `168` literal (tem que vir
+    da constante).
+
+    Mordida obrigatoria do brief: reverter a chamada para nao passar
+    `janela_horas` (ou passar `24` fixo) faz este teste falhar nominalmente,
+    porque `assert_called_once_with` compara os kwargs exatos."""
+    assert _JANELA_IDEMPOTENCIA_HORAS == 24 * _DIAS_ANTECEDENCIA == 168
+
+    vacinas = [_vacina(id_pet=1, id_tutor=10, nm_vacina="V10")]
+    svc, _, notif_repo, twilio, _ = _make_service(vacinas=vacinas)
+    notif_repo.existe_pendente_para_vacina.return_value = False
+
+    svc.executar()
+
+    notif_repo.existe_pendente_para_vacina.assert_called_once_with(
+        id_tutor=10, id_pet=1, nm_vacina="V10", janela_horas=168
+    )
+
+
+def test_tutor_pet_vacina_diferentes_continuam_recebendo_lembrete() -> None:
+    """Item 2(iii) do brief: a trava por vacina nao pode travar DEMAIS --
+    tutor diferente, pet diferente ou vacina diferente sao combinacoes
+    independentes e cada uma tem que gerar sua propria checagem/envio."""
+    vacinas = [
+        _vacina(id_pet=1, id_tutor=10, nm_vacina="V10"),
+        _vacina(id_pet=2, id_tutor=20, nm_vacina="V10"),  # tutor/pet diferentes
+        _vacina(id_pet=1, id_tutor=10, nm_vacina="Raiva"),  # vacina diferente, mesmo par
+    ]
+    svc, _, notif_repo, twilio, _ = _make_service(vacinas=vacinas)
+    notif_repo.existe_pendente_para_vacina.return_value = False  # nenhuma ja notificada
+
+    resumo = svc.executar()
+
+    assert resumo.enviadas == 3
+    assert resumo.ja_enviadas == 0
+    assert twilio.enviar_whatsapp.call_count == 3
+    notif_repo.existe_pendente_para_vacina.assert_any_call(
+        id_tutor=10, id_pet=1, nm_vacina="V10", janela_horas=168
+    )
+    notif_repo.existe_pendente_para_vacina.assert_any_call(
+        id_tutor=20, id_pet=2, nm_vacina="V10", janela_horas=168
+    )
+    notif_repo.existe_pendente_para_vacina.assert_any_call(
+        id_tutor=10, id_pet=1, nm_vacina="Raiva", janela_horas=168
+    )
 
 
 def test_twilio_rest_exception_real_nao_vaza_telefone_em_notificacao() -> None:

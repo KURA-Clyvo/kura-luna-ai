@@ -230,3 +230,28 @@ def test_sql_exists_nao_tem_bind_dentro_de_literal() -> None:
     A versão corrigida usa NUMTODSINTERVAL com bind numérico fora de aspas."""
     assert "INTERVAL ':" not in _SQL_EXISTS
     assert "NUMTODSINTERVAL(:horas" in _SQL_EXISTS
+
+
+def test_sql_exists_considera_falha_idempotente() -> None:
+    """F4-2 (lu-03-revisao.md / LU-04): sem 'FALHA' no IN, uma falha
+    permanente era reenviada/reinserida a cada execução (medido: 2º run-job
+    gerava +2 linhas e +2 chamadas Twilio para o mesmo tutor×pet×vacina).
+
+    Mordida: reverter o IN para ('PENDENTE', 'ENVIADA') faz este teste falhar
+    nominalmente."""
+    assert "'FALHA'" in _SQL_EXISTS
+    assert "ST_ENVIO   IN ('PENDENTE', 'ENVIADA', 'FALHA')" in _SQL_EXISTS
+
+
+@patch("src.db.repositories.notificacao_repo.oracledb")
+def test_existe_pendente_retorna_true_para_falha_recente(mock_oracledb: MagicMock) -> None:
+    """Prova de comportamento (não só de texto): o cursor simulado devolve
+    contagem > 0 -- exatamente o que o Oracle real devolveria com uma linha
+    'FALHA' dentro da janela, agora que o SQL a inclui no IN."""
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = (1,)
+    pool = _make_pool(mock_cursor)
+    repo = NotificacaoRepository(pool=pool)
+
+    result = repo.existe_pendente_para_vacina(id_tutor=96001, id_pet=96001, nm_vacina="V-G2")
+    assert result is True
