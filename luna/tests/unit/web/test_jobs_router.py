@@ -100,12 +100,17 @@ def test_sucesso_retorna_200_com_resumo() -> None:
 # ── 503 — pool None / credencial Twilio (F4-1) ──────────────────────────────
 
 def test_sem_pool_oracle_retorna_503() -> None:
-    """Settings com DSN de teste -> lifespan não consegue construir o pool
-    real -> app.state.pool fica None -> get_lembrete_service devolve 503
-    (comportamento real do lifespan, sem override)."""
+    """`app.state.pool is None` (achado documentado em `web/app.py::lifespan`:
+    a construção do pool é best-effort, cai em None se o Oracle não estiver
+    disponível) -> `get_lembrete_service` devolve 503 declarado, sem tentar
+    usar um pool None. `get_pool` é a dependência oficial pra simular isto
+    (mesmo padrão de `test_health.py::test_ready_kura_ok_oracle_indisponivel`)."""
+    from src.web.dependencies import get_pool
+
     settings = _settings()
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_pool] = lambda: None
 
     with TestClient(app, raise_server_exceptions=False) as c:
         resp = c.post(
@@ -175,22 +180,28 @@ async def test_execucao_concorrente_devolve_409_com_lock_real() -> None:
     # que a 2ª requisição chegue enquanto a 1ª ainda segura o lock.
     app.dependency_overrides[get_lembrete_service] = lambda: _fake_service(resumo, delay=0.3)
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        # dispara a 1ª e dá um instante para ela realmente entrar no `async
-        # with lock` antes de disparar a 2ª (concorrência real, não uma
-        # corrida onde as duas poderiam chegar antes de qualquer uma travar).
-        task1 = asyncio.create_task(
-            client.post(
+    # httpx.ASGITransport NÃO roda o lifespan sozinho (diferente do
+    # TestClient síncrono) -- sem isto, `app.state.lembrete_lock` nunca é
+    # criado e o endpoint quebra com AttributeError antes de sequer chegar
+    # no lock.
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            # dispara a 1ª e dá um instante para ela realmente entrar no
+            # `async with lock` antes de disparar a 2ª (concorrência real,
+            # não uma corrida onde as duas poderiam chegar antes de
+            # qualquer uma travar).
+            task1 = asyncio.create_task(
+                client.post(
+                    "/jobs/lembrete-vacina/executar", headers={"X-API-Key": _CHAVE_VALIDA}
+                )
+            )
+            await asyncio.sleep(0.05)
+            resp2 = await client.post(
                 "/jobs/lembrete-vacina/executar", headers={"X-API-Key": _CHAVE_VALIDA}
             )
-        )
-        await asyncio.sleep(0.05)
-        resp2 = await client.post(
-            "/jobs/lembrete-vacina/executar", headers={"X-API-Key": _CHAVE_VALIDA}
-        )
-        resp1 = await task1
+            resp1 = await task1
 
     assert resp1.status_code == 200
     assert resp2.status_code == 409
