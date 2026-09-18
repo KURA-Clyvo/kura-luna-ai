@@ -145,3 +145,6 @@
 {"mensagem": "picou o dedo dele sem querer no portao", "urgencia_esperada": "BAIXA", "justificativa": "supertriagem: 'picou' SEM animal na mesma oracao", "classe": "supertriagem_combinacao_sem_par"}
 {"mensagem": "cachorro caiu da cama macia", "urgencia_esperada": "BAIXA", "justificativa": "supertriagem: 'caiu' SEM palavra de altura (cama nao esta na lista) na mesma oracao", "classe": "supertriagem_combinacao_sem_par"}
 {"mensagem": "gato mastigou o brinquedo de pelucia", "urgencia_esperada": "BAIXA", "justificativa": "supertriagem: 'mastigou' SEM objeto toxico na mesma oracao", "classe": "supertriagem_combinacao_sem_par"}
+{"mensagem": "ele está respirando com dificuldade", "urgencia_esperada": "ALTA", "justificativa": "'respirando com dificuldade' (frase do roteiro da banca) — v1.4", "classe": "vocab_dispneia"}
+{"mensagem": "meu gato tá com dificuldade para respirar", "urgencia_esperada": "ALTA", "justificativa": "'dificuldade para respirar' — v1.4", "classe": "vocab_dispneia"}
+{"mensagem": "a cachorra está com falta de ar desde cedo", "urgencia_esperada": "ALTA", "justificativa": "'falta de ar' — v1.4", "classe": "vocab_dispneia"}

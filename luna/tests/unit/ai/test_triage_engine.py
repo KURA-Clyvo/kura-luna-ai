@@ -322,9 +322,9 @@ def test_item2_fronteira_de_palavra_sem_regressao_afebril(engine: TriageEngine) 
 
 # ── LU-07 item 3: versão das regras ────────────────────────────────────────────
 
-def test_versao_regras_e_1_3() -> None:
-    """LU-07 fix wave 2, item 2: versão sobe para 1.3 (≤ 10 bytes)."""
-    assert TRIAGE_RULES_VERSION == "1.3"
+def test_versao_regras_e_1_4() -> None:
+    """v1.4: frases de dispneia com preposição/gerúndio (≤ 10 bytes)."""
+    assert TRIAGE_RULES_VERSION == "1.4"
     assert len(TRIAGE_RULES_VERSION.encode("utf-8")) <= 10
 
 

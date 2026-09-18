@@ -1,6 +1,6 @@
 """Listas versionadas de sintomas para triagem de mensagens de tutores."""
 
-TRIAGE_RULES_VERSION = "1.3"
+TRIAGE_RULES_VERSION = "1.4"
 
 # Cada chave é o nome da categoria; os valores são keywords em português (com ou sem acento).
 # O TriageEngine normaliza tudo antes de comparar.
@@ -117,6 +117,15 @@ SINTOMAS_ALTA_URGENCIA: dict[str, list[str]] = {
     ],
     "dispneia": [
         "dificuldade respirar",
+        # v1.4: formas com preposição/gerúndio — "respirando com dificuldade"
+        # (frase do roteiro da banca) e "dificuldade para respirar" caíam em
+        # BAIXA, porque a keyword casa só a sequência contígua de tokens.
+        "dificuldade para respirar",
+        "dificuldade pra respirar",
+        "dificuldade de respirar",
+        "respirando com dificuldade",
+        "respira com dificuldade",
+        "falta de ar",
         "não respira",
         "nao respira",
         "respiração difícil",
