@@ -53,7 +53,7 @@ jobs:
       # testes de IA mockam YOLO/torch via unittest.mock. Nenhum peso é
       # baixado; Oracle/Twilio/OpenAI nunca são chamados de verdade.
       - name: Test
-        run: pytest -m "not slow"
+        run: pytest -m "not slow and not oracle"
 
   docker-build:
     name: Docker Build
