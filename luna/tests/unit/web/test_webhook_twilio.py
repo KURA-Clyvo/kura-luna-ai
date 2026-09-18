@@ -101,3 +101,26 @@ def test_handler_retorna_em_menos_de_50ms(client_no_sig: TestClient) -> None:
     assert resp.status_code == 200
     # TestClient executa background tasks após retorno, mas o handler em si é rápido
     assert elapsed_ms < 500  # margem generosa para CI
+
+
+def test_assinatura_da_url_publica_e_aceita_atras_de_tunel(  # type: ignore[no-untyped-def]
+    app, test_settings, mock_inbound_service: AsyncMock
+) -> None:
+    """O Twilio assina a URL pública (túnel/https); a requisição chega aqui como
+    http://testserver/... — validar contra request.url dava 403 em todo inbound."""
+    from twilio.request_validator import RequestValidator
+
+    assinatura = RequestValidator(test_settings.TWILIO_TOKEN).compute_signature(
+        test_settings.WEBHOOK_PUBLIC_URL, _VALID_FORM
+    )
+    app.dependency_overrides[get_inbound_service] = lambda: mock_inbound_service
+    try:
+        with TestClient(app, raise_server_exceptions=False) as c:
+            resp = c.post(
+                "/webhook/twilio/whatsapp",
+                data=_VALID_FORM,
+                headers={"X-Twilio-Signature": assinatura},
+            )
+    finally:
+        app.dependency_overrides.pop(get_inbound_service, None)
+    assert resp.status_code == 200
