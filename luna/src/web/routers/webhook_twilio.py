@@ -16,6 +16,21 @@ from src.web.dependencies import get_inbound_service, get_settings
 router = APIRouter(tags=["webhook"])
 
 
+def _url_assinada(request: Request, settings: Settings) -> str:
+    """URL que o Twilio assinou: a PÚBLICA configurada no console, não a que chegou aqui.
+
+    Atrás de túnel/proxy (localtunnel, ngrok, container Docker) `request.url` é
+    `http://localhost:8000/...` enquanto o Twilio assinou `https://<túnel>/...` — a
+    assinatura nunca batia e todo inbound levava 403. Só funcionava com o uvicorn direto
+    no host, onde o X-Forwarded-Proto vindo de 127.0.0.1 é confiável por padrão.
+    `WEBHOOK_PUBLIC_URL` é exatamente a URL cadastrada no console do Twilio.
+    """
+    publica = settings.WEBHOOK_PUBLIC_URL.strip()
+    if not publica:
+        return str(request.url)
+    return f"{publica}?{request.url.query}" if request.url.query else publica
+
+
 async def validar_twilio_signature(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
@@ -30,7 +45,7 @@ async def validar_twilio_signature(
         raise HTTPException(status_code=403, detail="X-Twilio-Signature ausente")
 
     form_data = await request.form()
-    url = str(request.url)
+    url = _url_assinada(request, settings)
     params = dict(form_data)
 
     if not validar_assinatura(signature, url, params, settings.TWILIO_TOKEN):
