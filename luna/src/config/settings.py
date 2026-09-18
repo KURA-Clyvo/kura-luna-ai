@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     LUNA_SCHEDULER_ENABLED: bool = False
     LUNA_SCHEDULER_HORA: int = 8
 
+    # Origens do navegador autorizadas a chamar a Luna (mobile-clinica-rn na
+    # web chama /whatsapp/enviar, /transcricao e /ready direto). Lista separada
+    # por vírgula, mesmo nome/formato da API Java. Vazio = sem CORS (só
+    # chamadas nativas/servidor-a-servidor, que não passam por preflight).
+    CORS_ALLOWED_ORIGINS: str = ""
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
+
     @field_validator("KURA_API_BASE_URL")
     @classmethod
     def _validate_kura_url(cls, v: str) -> str:
