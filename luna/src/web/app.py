@@ -9,6 +9,7 @@ from typing import AsyncGenerator
 
 import httpx
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
@@ -111,6 +112,14 @@ def create_app(settings: Settings) -> FastAPI:
 
     # ── middleware ────────────────────────────────────────────────────────────
     app.add_middleware(_RequestIDMiddleware)
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type", "Authorization", "X-API-Key"],
+            expose_headers=["X-Request-ID"],
+        )
 
     # ── exception handlers ────────────────────────────────────────────────────
     @app.exception_handler(KuraApiError)
