@@ -125,12 +125,34 @@ class InboundMessageService:
         cai no fluxo normal abaixo, sem alteração nenhuma de comportamento —
         a pendência também permanece intacta nesse caso (o tutor pode
         responder de novo).
-        """
-        if self._pendencias is not None:
-            resultado_confirmacao = await self._tentar_confirmacao_d1(msg)
-            if resultado_confirmacao is not None:
-                return resultado_confirmacao
 
+        G2 da REC-16 (achado B, Important): `_tentar_confirmacao_d1` roda
+        DENTRO do mesmo `try` que protege a triagem — não FORA dele, como na
+        primeira versão desta task. Antes do fix, um `MessagingError` no
+        `enviar_whatsapp` da mensagem de confirmação (ex.: `63016`, texto
+        livre fora da janela de 24h — risco já documentado no template)
+        escapava sem `LOG_ERRO` e sem aviso ao tutor, porque o bloco vivia
+        ACIMA do `try:`. Medido pela G2 com controle positivo: o MESMO
+        `MessagingError`, no MESMO gateway, era absorvido pelo fluxo normal
+        (`_processar_interno`) e escapava pelo novo. Mover a chamada para
+        dentro do `try` resolve com a MESMA disciplina do resto do arquivo —
+        não duplica lógica de log.
+
+        Decisão sobre a pendência quando o AVISO ao tutor falha depois da
+        ação já ter sido aplicada no `.NET` (cenário concreto: tutor manda
+        `2`, o `.NET` cancela o agendamento com sucesso, e só o envio da
+        mensagem de confirmação falha): a pendência É REMOVIDA mesmo assim
+        (dentro de `_tentar_confirmacao_d1`, antes do envio) e PERMANECE
+        removida — não há por que restaurá-la. O `.NET` já é a fonte da
+        verdade e já aplicou a transição; reabrir a pendência faria uma
+        resposta futura do tutor tentar `registrar_resposta_confirmacao` de
+        novo contra um agendamento cujo status já mudou, o que o `.NET`
+        recusa com `422` (`StatusElegiveisParaResposta`) — mesmo caminho que
+        o código já trata para "resposta reconhecida mas rejeitada". A
+        falha real aqui é só de NOTIFICAÇÃO, não de estado, e o fix garante
+        que ela nunca mais seja silenciosa (vira `LOG_ERRO` + fallback de
+        melhor esforço, pelo mesmo `except` abaixo).
+        """
         # LU-07 fix wave 1 (A6): `urgencia` fica FORA do try — classificamos
         # antes de qualquer chamada de rede (item 4 original) e guardamos o
         # resultado aqui em cima, para que o except abaixo saiba a urgência
@@ -141,6 +163,11 @@ class InboundMessageService:
         # orienta atendimento imediato).
         urgencia: str | None = None
         try:
+            if self._pendencias is not None:
+                resultado_confirmacao = await self._tentar_confirmacao_d1(msg)
+                if resultado_confirmacao is not None:
+                    return resultado_confirmacao
+
             triage_result = self._triage.classificar(msg.corpo)
             urgencia = triage_result.urgencia
             return await self._processar_interno(msg, triage_result)

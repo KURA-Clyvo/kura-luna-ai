@@ -98,6 +98,54 @@ async def test_registra_pendencia_apos_envio_confirmado(
     assert pendencia.id_tutor == 7
 
 
+# ── G2 achado D — chave do store simétrica com o que o webhook produz ──────
+
+@pytest.mark.parametrize(
+    "ds_whatsapp",
+    [
+        "+5511999999999",  # E.164 (o que o .NET manda hoje, A-12)
+        "5511999999999",  # DDI sem "+"
+        "11999999999",  # nacional, sem DDI -- formato legado medido no Oracle
+    ],
+)
+async def test_chave_da_pendencia_sempre_bate_com_a_chave_do_webhook(
+    kura_client: AsyncMock,
+    twilio_gateway: MagicMock,
+    store: PendenciaConfirmacaoStore,
+    log_repo: MagicMock,
+    ds_whatsapp: str,
+) -> None:
+    """G2 achado D (Important): independente do formato de `DS_WHATSAPP`
+    (E.164, com DDI sem '+', ou nacional sem DDI -- os 3 que coexistem de
+    verdade no Oracle, ver comentário em `twilio_client.py`), a chave gravada
+    pelo job tem que casar com a chave que `parse_inbound_payload` produz a
+    partir do `From` do Twilio (sempre E.164 com DDI)."""
+    from src.messaging.twilio_inbound import parse_inbound_payload
+
+    kura_client.buscar_confirmacao_pendente.return_value = [
+        _candidato(ds_whatsapp=ds_whatsapp)
+    ]
+    service = ConfirmacaoD1Service(kura_client, twilio_gateway, store, log_repo)
+
+    with _sem_sleep():
+        await service.executar()
+
+    msg = parse_inbound_payload(
+        {
+            "From": "whatsapp:+5511999999999",
+            "Body": "1",
+            "MessageSid": "SM9",
+            "AccountSid": "AC1",
+        }
+    )
+    pendencia = store.buscar(msg.numero_origem)
+    assert pendencia is not None, (
+        f"pendência gravada a partir de ds_whatsapp={ds_whatsapp!r} não foi "
+        f"encontrada pela chave do webhook {msg.numero_origem!r}"
+    )
+    assert pendencia.id_agendamento == 1
+
+
 # ── G0 item 10 — status real antes de marcar enviado ────────────────────────
 
 async def test_status_queued_apos_tentativas_nao_marca_enviado(

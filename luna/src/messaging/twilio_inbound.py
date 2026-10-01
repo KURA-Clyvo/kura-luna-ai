@@ -16,16 +16,24 @@ class InboundMessage:
 
 
 def chave_telefone(numero: str) -> str:
-    """Normaliza um número de telefone para a MESMA chave usada em `InboundMessage.
-    numero_origem` -- remove o prefixo ``whatsapp:`` e o ``+`` do E.164, sem tocar
-    nos dígitos.
+    """Remove o prefixo ``whatsapp:`` e o ``+`` do E.164, sem tocar nos dígitos.
 
-    Extraído de `parse_inbound_payload` (REC-16, G0 item 11): o job de
-    confirmação D-1 recebe `TUTOR.DS_WHATSAPP` em E.164 (``+55...``, ver A-12)
-    do `.NET` e precisa registrar a pendência sob a MESMA chave que esta
-    função já produzia para o `From` do webhook Twilio (dígitos, sem prefixo)
-    -- ponto único de verdade para as duas direções, em vez de duas
-    implementações do mesmo "tira whatsapp:/+" divergindo em silêncio.
+    Extraído de `parse_inbound_payload` (REC-16, G0 item 11): o `From` que o
+    Twilio entrega ao webhook SEMPRE vem em E.164 (``whatsapp:+55...``), então
+    esta função sozinha já produz a chave certa para `InboundMessage.
+    numero_origem`.
+
+    ⚠️ NÃO é ponto único de verdade sozinha para o lado do JOB de confirmação
+    D-1 (achado D da G2, corrigido): `TUTOR.DS_WHATSAPP` pode vir em formato
+    NACIONAL (``"11999999999"``, sem DDI -- formato legado medido de verdade
+    no Oracle, ver comentário no topo de `twilio_client.py`), e esta função
+    **não acrescenta DDI**. Quem for gravar uma chave a partir de
+    `DS_WHATSAPP` (não a partir do `From` do webhook) precisa normalizar
+    PRIMEIRO com `normalizar_telefone_whatsapp` (que acrescenta o DDI quando
+    falta) e só depois chamar esta função -- ver
+    `confirmacao_d1_service.py::_processar_candidato`, que é o único chamador
+    desse caminho hoje. Chamar esta função sozinha sobre um número nacional
+    produz uma chave que o webhook nunca vai bater.
     """
     return numero.removeprefix("whatsapp:").removeprefix("+")
 

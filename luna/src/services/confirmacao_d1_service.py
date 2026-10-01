@@ -13,7 +13,12 @@ from src.integration.dtos import ConfirmacaoPendenteItemDTO
 from src.integration.exceptions import KuraApiError, KuraTimeoutError
 from src.integration.kura_client import IKuraClient
 from src.messaging.templates import confirmacao_d1
-from src.messaging.twilio_client import ITwilioGateway, MessagingError, StatusMensagem
+from src.messaging.twilio_client import (
+    ITwilioGateway,
+    MessagingError,
+    StatusMensagem,
+    normalizar_telefone_whatsapp,
+)
 from src.messaging.twilio_inbound import chave_telefone
 from src.services.pendencia_confirmacao_store import (
     PendenciaConfirmacao,
@@ -171,7 +176,18 @@ class ConfirmacaoD1Service:
 
         await self._kura.marcar_lembrete_enviado(candidato.id_agendamento)
 
-        telefone = chave_telefone(candidato.ds_whatsapp)
+        # G2 da REC-16 (achado D, Important): `chave_telefone` sozinha só tira
+        # `whatsapp:`/`+` -- ela NÃO acrescenta DDI quando `ds_whatsapp` vem em
+        # formato nacional (ex.: "11999999999", formato legado medido de
+        # verdade no Oracle, ver comentário no topo de `twilio_client.py`).
+        # `enviar_whatsapp` (logo acima) passa por `normalizar_telefone_
+        # whatsapp`, que ACRESCENTA o DDI nesse caso -- então o envio
+        # funciona, mas a chave gravada aqui ficava "11999999999" enquanto o
+        # webhook (que sempre recebe o `From` do Twilio em E.164) produz
+        # "5511999999999": nunca bate, e a interceptação da resposta fica
+        # inerte em silêncio para esse tutor. Fix: derivar a chave do MESMO
+        # normalizador que o envio usa, não reinventar uma segunda regra.
+        telefone = chave_telefone(normalizar_telefone_whatsapp(candidato.ds_whatsapp))
         self._store.registrar(
             telefone,
             PendenciaConfirmacao(

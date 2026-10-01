@@ -717,6 +717,65 @@ async def test_falha_ao_registrar_resposta_remove_pendencia_e_responde_generico(
     assert "não conseguimos" in result.resposta_enviada.lower()
 
 
+# ── G2 achado B — _tentar_confirmacao_d1 não pode escapar de processar() ───
+
+async def test_falha_ao_enviar_confirmacao_de_sucesso_nao_escapa_e_vai_para_log_erro(
+    service_com_store: tuple[InboundMessageService, PendenciaConfirmacaoStore],
+    kura_client: AsyncMock,
+    log_repo: MagicMock,
+) -> None:
+    """G2 achado B (Important): tutor manda 'sim' -> o `.NET` processa com
+    sucesso (ex.: CONFIRMADO) -> o envio da mensagem de confirmação AO TUTOR
+    falha (MessagingError, ex.: 63016). Antes do fix, essa exceção escapava de
+    `processar()` sem log nem LOG_ERRO (achado B da G2, com controle
+    positivo: o mesmo erro no fluxo normal é absorvido). Depois do fix, nunca
+    propaga, e a pendência PERMANECE removida -- a ação já foi aplicada no
+    `.NET`, só o aviso ao tutor falhou."""
+    service, store = service_com_store
+    kura_client.registrar_resposta_confirmacao.return_value = MagicMock(
+        id_agendamento=10, ds_status="CONFIRMADO", ds_resposta_confirmacao="SIM"
+    )
+
+    from src.messaging.twilio_client import MessagingError
+
+    with patch(
+        "src.services.inbound_message_service.asyncio.to_thread",
+        new=AsyncMock(side_effect=MessagingError("boom", codigo=63016)),
+    ):
+        result = await service.processar(_make_msg("sim", numero="5511999999999"))
+
+    # não levantou -- se chegou aqui, já não escapou.
+    kura_client.registrar_resposta_confirmacao.assert_awaited_once()
+    log_repo.registrar.assert_called_once()
+    assert store.buscar("5511999999999") is None
+    assert result is not None
+
+
+async def test_falha_dupla_registrar_e_notificar_falha_nao_escapa(
+    service_com_store: tuple[InboundMessageService, PendenciaConfirmacaoStore],
+    kura_client: AsyncMock,
+    log_repo: MagicMock,
+) -> None:
+    """G2 achado B -- o OUTRO ramo: o `.NET` REJEITA a resposta (ex.: 422) E o
+    envio da mensagem de erro genérica também falha. As duas falhas são
+    logadas (uma pelo except interno de `_tentar_confirmacao_d1`, outra pelo
+    except externo de `processar`), e nada escapa."""
+    service, store = service_com_store
+    kura_client.registrar_resposta_confirmacao.side_effect = RuntimeError("422 rejeitado")
+
+    from src.messaging.twilio_client import MessagingError
+
+    with patch(
+        "src.services.inbound_message_service.asyncio.to_thread",
+        new=AsyncMock(side_effect=MessagingError("boom", codigo="30008")),
+    ):
+        result = await service.processar(_make_msg("sim", numero="5511999999999"))
+
+    assert result is not None
+    assert store.buscar("5511999999999") is None
+    assert log_repo.registrar.call_count >= 2
+
+
 # ── LGPD — telefone nunca cru em log nem em LOG_ERRO (REC-16) ──────────────
 
 async def test_falha_ao_registrar_resposta_nao_vaza_telefone_no_log(
