@@ -12,6 +12,8 @@ from src.integration.exceptions import KuraTimeoutError
 from src.integration.kura_client import IKuraClient
 from src.messaging.twilio_client import ITwilioGateway
 from src.messaging.twilio_inbound import InboundMessage
+from src.services.confirmacao_d1_reconhecedor import reconhecer_resposta_confirmacao
+from src.services.pendencia_confirmacao_store import PendenciaConfirmacaoStore
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,22 @@ _RESPOSTAS: dict[str, str] = {
     "BAIXA": _RESPOSTA_BAIXA,
 }
 
+# REC-16 (A-10/a) — respostas enviadas ao tutor depois de uma confirmação D-1
+# reconhecida e processada com sucesso pelo `.NET`.
+_CONFIRMACAO_RESPOSTAS: dict[str, str] = {
+    "SIM": "Presença confirmada! Te esperamos. 🐾",
+    "CANCELAR": "Agendamento cancelado. Se quiser remarcar, é só chamar por aqui.",
+    "REMARCAR": "Recebemos seu pedido de remarcação — a clínica vai entrar em contato em breve.",
+}
+# Resposta genérica quando o `.NET` rejeita a confirmação (ex.: status do
+# agendamento mudou entre o envio do lembrete e a resposta do tutor) — nunca
+# expõe o motivo técnico ao tutor, e a pendência é removida para não travar o
+# tutor num loop de resposta que sempre falha.
+_CONFIRMACAO_FALHA = (
+    "Não conseguimos processar sua resposta agora. "
+    "Entre em contato com a clínica para confirmar seu agendamento."
+)
+
 
 @dataclass(frozen=True)
 class ProcessamentoResult:
@@ -85,14 +103,34 @@ class InboundMessageService:
         triage_engine: TriageEngine,
         twilio_gateway: ITwilioGateway,
         log_repo: LogErroRepository,
+        pendencia_store: PendenciaConfirmacaoStore | None = None,
     ) -> None:
         self._kura = kura_client
         self._triage = triage_engine
         self._twilio = twilio_gateway
         self._log = log_repo
+        # REC-16 — opcional e default None de propósito: mantém compatível
+        # qualquer composição existente deste serviço que não passe o store
+        # (ex.: testes antigos com 4 args posicionais). None desliga a
+        # interceptação por completo (equivalente a "nunca há pendência").
+        self._pendencias = pendencia_store
 
     async def processar(self, msg: InboundMessage) -> ProcessamentoResult:
-        """Processa mensagem inbound com fluxo resiliente completo."""
+        """Processa mensagem inbound com fluxo resiliente completo.
+
+        REC-16 (A-10/a): ANTES de qualquer triagem, se o telefone de origem
+        tem uma pendência de confirmação D-1 ativa E a mensagem é uma resposta
+        curta reconhecida, a resposta vira uma transição de status no `.NET`
+        em vez de passar pela IA. Mensagem ambígua (ou telefone sem pendência)
+        cai no fluxo normal abaixo, sem alteração nenhuma de comportamento —
+        a pendência também permanece intacta nesse caso (o tutor pode
+        responder de novo).
+        """
+        if self._pendencias is not None:
+            resultado_confirmacao = await self._tentar_confirmacao_d1(msg)
+            if resultado_confirmacao is not None:
+                return resultado_confirmacao
+
         # LU-07 fix wave 1 (A6): `urgencia` fica FORA do try — classificamos
         # antes de qualquer chamada de rede (item 4 original) e guardamos o
         # resultado aqui em cima, para que o except abaixo saiba a urgência
@@ -180,6 +218,64 @@ class InboundMessageService:
             id_interacao=id_interacao,
             urgencia=urgencia,
             resposta_enviada=resposta,
+        )
+
+    async def _tentar_confirmacao_d1(self, msg: InboundMessage) -> ProcessamentoResult | None:
+        """REC-16 (A-10/a, G0 item 11) — tenta tratar `msg` como resposta a um
+        lembrete de confirmação D-1 pendente. Devolve `None` quando o fluxo
+        normal de triagem deve seguir (sem pendência, ou mensagem ambígua).
+
+        TASK-79 (telefone ambíguo não intercepta) continua válido aqui: este
+        método só age quando HÁ pendência para o `numero_origem` exato — não
+        tenta nenhuma resolução adicional de tutor, a mesma restrição que já
+        valia para a triagem antes desta task.
+        """
+        pendencia = self._pendencias.buscar(msg.numero_origem)  # type: ignore[union-attr]
+        if pendencia is None:
+            return None
+
+        resposta = reconhecer_resposta_confirmacao(msg.corpo)
+        if resposta is None:
+            # Ambígua -- NÃO remove a pendência (o tutor pode responder de
+            # novo depois); cai no fluxo normal de triagem logo abaixo.
+            return None
+
+        try:
+            await self._kura.registrar_resposta_confirmacao(
+                id_agendamento=pendencia.id_agendamento,
+                id_tutor=pendencia.id_tutor,
+                resposta=resposta,
+            )
+        except Exception as exc:
+            # Resposta RECONHECIDA mas o `.NET` rejeitou (ex.: status do
+            # agendamento mudou entre o envio do lembrete e esta resposta).
+            # Remove a pendência (evita um loop de tentativas que sempre
+            # falham) e responde com mensagem genérica -- nunca o motivo
+            # técnico, nunca o telefone (LGPD, mesma disciplina do resto do
+            # arquivo: `str(exc)` aqui já vem sanitizado pelo KuraClient,
+            # mas LOG_ERRO/str(exc) nunca carregam `msg.numero_origem`).
+            logger.warning(
+                "Falha ao registrar resposta de confirmação D-1 (não crítico): %s", exc
+            )
+            LogErroRepository.from_exception(
+                self._log,
+                nm_procedure="InboundMessageService._tentar_confirmacao_d1",
+                exc=exc,
+                parametros=f"id_agendamento={pendencia.id_agendamento}",
+            )
+            self._pendencias.remover(msg.numero_origem)  # type: ignore[union-attr]
+            await asyncio.to_thread(
+                self._twilio.enviar_whatsapp, msg.numero_origem, _CONFIRMACAO_FALHA
+            )
+            return ProcessamentoResult(
+                id_interacao=None, urgencia=None, resposta_enviada=_CONFIRMACAO_FALHA
+            )
+
+        self._pendencias.remover(msg.numero_origem)  # type: ignore[union-attr]
+        resposta_tutor = _CONFIRMACAO_RESPOSTAS[resposta]
+        await asyncio.to_thread(self._twilio.enviar_whatsapp, msg.numero_origem, resposta_tutor)
+        return ProcessamentoResult(
+            id_interacao=None, urgencia=None, resposta_enviada=resposta_tutor
         )
 
     @staticmethod

@@ -17,6 +17,7 @@ from src.integration.kura_client import KuraClient
 from src.messaging.twilio_client import TwilioGateway
 from src.services.lembrete_vacina_factory import criar_lembrete_service
 from src.services.notification_service import LembreteVacinaService
+from src.services.pendencia_confirmacao_store import PendenciaConfirmacaoStore
 from src.services.transcricao_service import WhisperGateway
 
 if TYPE_CHECKING:
@@ -153,6 +154,11 @@ def get_lembrete_service(
         ) from None
 
 
+def get_confirmacao_pendentes_store(request: Request) -> PendenciaConfirmacaoStore:
+    """Retorna o `PendenciaConfirmacaoStore` criado no lifespan (REC-16)."""
+    return request.app.state.confirmacao_pendentes  # type: ignore[no-any-return]
+
+
 def get_inbound_service(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
@@ -165,4 +171,5 @@ def get_inbound_service(
         triage_engine=get_triage_engine(),
         twilio_gateway=get_twilio_gateway(settings),
         log_repo=get_log_repo(request),
+        pendencia_store=get_confirmacao_pendentes_store(request),
     )

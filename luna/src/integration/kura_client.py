@@ -1,12 +1,16 @@
 """IKuraClient Protocol e KuraClient (httpx async) para a API .NET Kura."""
 import logging
+from datetime import date
 from typing import Protocol, runtime_checkable
 
 import httpx
 
 from src.config.logging_config import redigir_url_sensivel
 from src.integration.dtos import (
+    ConfirmacaoPendenteItemDTO,
     InteractionRequestDTO,
+    LembreteEnviadoResponseDTO,
+    RespostaConfirmacaoResponseDTO,
     TriageRequestDTO,
     TutorContextoDTO,
 )
@@ -33,6 +37,22 @@ class IKuraClient(Protocol):
 
     async def verificar_saude(self) -> bool:
         """Verifica se a API Kura está respondendo (GET /health). Nunca levanta."""
+        ...
+
+    async def buscar_confirmacao_pendente(
+        self, data: date
+    ) -> list[ConfirmacaoPendenteItemDTO]:
+        """Lista candidatos a lembrete de confirmação D-1 para `data` (REC-16/REC-15)."""
+        ...
+
+    async def marcar_lembrete_enviado(self, id_agendamento: int) -> LembreteEnviadoResponseDTO:
+        """Marca o lembrete de confirmação D-1 como enviado (idempotente, REC-15)."""
+        ...
+
+    async def registrar_resposta_confirmacao(
+        self, id_agendamento: int, id_tutor: int, resposta: str
+    ) -> RespostaConfirmacaoResponseDTO:
+        """Registra a resposta do tutor ao lembrete de confirmação D-1 (REC-15)."""
         ...
 
 
@@ -185,3 +205,65 @@ class KuraClient:
             return resp.status_code == 200
         except Exception:
             return False
+
+    async def buscar_confirmacao_pendente(
+        self, data: date
+    ) -> list[ConfirmacaoPendenteItemDTO]:
+        """Envia GET /api/v1/luna/agendamentos/confirmacao-pendente?data=<ISO>.
+
+        Sem PII na URL (query é só a data) — não precisa de redação de path.
+        """
+        try:
+            resp = await self._client.get(
+                f"{self._base}/api/v1/luna/agendamentos/confirmacao-pendente",
+                params={"data": data.isoformat()},
+                headers=self._auth_headers(),
+                timeout=self._timeout,
+            )
+        except httpx.TimeoutException as exc:
+            raise KuraTimeoutError() from exc
+
+        self._handle_error_status(resp)
+        self._levantar_erro_sanitizado(resp)
+        return [ConfirmacaoPendenteItemDTO.model_validate(item) for item in resp.json()]
+
+    async def marcar_lembrete_enviado(self, id_agendamento: int) -> LembreteEnviadoResponseDTO:
+        """Envia POST /api/v1/luna/agendamentos/{id}/lembrete-enviado. Idempotente do
+        lado `.NET` (REC-15) — chamadas repetidas devolvem a data já gravada."""
+        try:
+            resp = await self._client.post(
+                f"{self._base}/api/v1/luna/agendamentos/{id_agendamento}/lembrete-enviado",
+                headers=self._auth_headers(),
+                timeout=self._timeout,
+            )
+        except httpx.TimeoutException as exc:
+            raise KuraTimeoutError() from exc
+
+        self._handle_error_status(resp)
+        self._levantar_erro_sanitizado(resp)
+        return LembreteEnviadoResponseDTO.model_validate(resp.json())
+
+    async def registrar_resposta_confirmacao(
+        self, id_agendamento: int, id_tutor: int, resposta: str
+    ) -> RespostaConfirmacaoResponseDTO:
+        """Envia POST /api/v1/luna/agendamentos/{id}/resposta-confirmacao.
+
+        Corpo carrega só ids numéricos e a resposta (SIM/CANCELAR/REMARCAR) — nunca
+        telefone (LGPD). O `.NET` devolve 422 se `id_tutor` não corresponder ao tutor
+        do agendamento (G0 item 11) ou se o status não aceitar resposta; 404 se o
+        agendamento não existir — ambos propagam como `KuraApiError` via
+        `_levantar_erro_sanitizado`, mesmo caminho dos outros 2 métodos.
+        """
+        try:
+            resp = await self._client.post(
+                f"{self._base}/api/v1/luna/agendamentos/{id_agendamento}/resposta-confirmacao",
+                json={"id_tutor": id_tutor, "resposta": resposta},
+                headers=self._auth_headers(),
+                timeout=self._timeout,
+            )
+        except httpx.TimeoutException as exc:
+            raise KuraTimeoutError() from exc
+
+        self._handle_error_status(resp)
+        self._levantar_erro_sanitizado(resp)
+        return RespostaConfirmacaoResponseDTO.model_validate(resp.json())

@@ -15,6 +15,21 @@ class InboundMessage:
     num_media: int = 0
 
 
+def chave_telefone(numero: str) -> str:
+    """Normaliza um número de telefone para a MESMA chave usada em `InboundMessage.
+    numero_origem` -- remove o prefixo ``whatsapp:`` e o ``+`` do E.164, sem tocar
+    nos dígitos.
+
+    Extraído de `parse_inbound_payload` (REC-16, G0 item 11): o job de
+    confirmação D-1 recebe `TUTOR.DS_WHATSAPP` em E.164 (``+55...``, ver A-12)
+    do `.NET` e precisa registrar a pendência sob a MESMA chave que esta
+    função já produzia para o `From` do webhook Twilio (dígitos, sem prefixo)
+    -- ponto único de verdade para as duas direções, em vez de duas
+    implementações do mesmo "tira whatsapp:/+" divergindo em silêncio.
+    """
+    return numero.removeprefix("whatsapp:").removeprefix("+")
+
+
 def parse_inbound_payload(form_data: dict) -> InboundMessage:  # type: ignore[type-arg]
     """Extrai os campos relevantes do payload form-encoded do Twilio.
 
@@ -29,7 +44,7 @@ def parse_inbound_payload(form_data: dict) -> InboundMessage:  # type: ignore[ty
     if body is None:
         raise ValueError("Campo 'Body' ausente no payload Twilio")
 
-    numero = str(raw_from).removeprefix("whatsapp:").removeprefix("+")
+    numero = chave_telefone(str(raw_from))
 
     return InboundMessage(
         numero_origem=numero,

@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     LUNA_SCHEDULER_ENABLED: bool = False
     LUNA_SCHEDULER_HORA: int = 8
 
+    # Scheduler de confirmação D-1 (REC-16, A-10/e) — mesmo padrão do
+    # LUNA_SCHEDULER_ENABLED: desligado por padrão, ligar em UMA réplica só
+    # (mais de uma réplica com a flag true duplicaria o envio diário).
+    LEMBRETE_CONFIRMACAO_HABILITADO: bool = False
+    LEMBRETE_CONFIRMACAO_HORA: int = 9
+
     # Origens do navegador autorizadas a chamar a Luna (mobile-clinica-rn na
     # web chama /whatsapp/enviar, /transcricao e /ready direto). Lista separada
     # por vírgula, mesmo nome/formato da API Java. Vazio = sem CORS (só
