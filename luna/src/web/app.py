@@ -16,6 +16,7 @@ from starlette.responses import Response
 
 from src.config.settings import Settings
 from src.integration.exceptions import KuraApiError, KuraTimeoutError
+from src.services.pendencia_confirmacao_store import PendenciaConfirmacaoStore
 from src.web.routers import health as health_router
 from src.web.routers import jobs as jobs_router
 from src.web.routers import transcricao as transcricao_router
@@ -71,27 +72,57 @@ def create_app(settings: Settings) -> FastAPI:
         # Criado sempre, mesmo com o scheduler desligado: o gatilho manual
         # funciona independentemente da flag.
         app.state.lembrete_lock = asyncio.Lock()
+        # REC-16 — lock PRÓPRIO do job de confirmação D-1 (ver docstring de
+        # `executar_tick_confirmacao_d1` sobre por que não reaproveita
+        # `lembrete_lock`).
+        app.state.confirmacao_d1_lock = asyncio.Lock()
+        # REC-16 (G0 item 11) — mapa em memória telefone -> pendência de
+        # confirmação D-1, criado SEMPRE (independente da flag abaixo), mesmo
+        # padrão de `lembrete_lock`: com a flag desligada o job nunca roda e o
+        # mapa nunca é populado, então a interceptação em
+        # `InboundMessageService` nunca encontra pendência nenhuma — não é
+        # preciso um segundo `if` de flag no meio do fluxo de triagem.
+        app.state.confirmacao_pendentes = PendenciaConfirmacaoStore()
         app.state.scheduler = None
-        if settings.LUNA_SCHEDULER_ENABLED:
+        if settings.LUNA_SCHEDULER_ENABLED or settings.LEMBRETE_CONFIRMACAO_HABILITADO:
             from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-            from src.jobs.lembrete_vacina_job import executar_tick_lembrete_vacina
-
             scheduler = AsyncIOScheduler(timezone="America/Sao_Paulo")
-            scheduler.add_job(
-                executar_tick_lembrete_vacina,
-                "cron",
-                hour=settings.LUNA_SCHEDULER_HORA,
-                minute=0,
-                id="lembrete_vacina",
-                kwargs={"app": app},
-            )
+
+            if settings.LUNA_SCHEDULER_ENABLED:
+                from src.jobs.lembrete_vacina_job import executar_tick_lembrete_vacina
+
+                scheduler.add_job(
+                    executar_tick_lembrete_vacina,
+                    "cron",
+                    hour=settings.LUNA_SCHEDULER_HORA,
+                    minute=0,
+                    id="lembrete_vacina",
+                    kwargs={"app": app},
+                )
+                logger.info(
+                    "Scheduler de lembrete de vacina ligado — executa diariamente às %02d:00 BRT",
+                    settings.LUNA_SCHEDULER_HORA,
+                )
+
+            if settings.LEMBRETE_CONFIRMACAO_HABILITADO:
+                from src.jobs.confirmacao_d1_job import executar_tick_confirmacao_d1
+
+                scheduler.add_job(
+                    executar_tick_confirmacao_d1,
+                    "cron",
+                    hour=settings.LEMBRETE_CONFIRMACAO_HORA,
+                    minute=0,
+                    id="confirmacao_d1",
+                    kwargs={"app": app},
+                )
+                logger.info(
+                    "Scheduler de confirmação D-1 ligado — executa diariamente às %02d:00 BRT",
+                    settings.LEMBRETE_CONFIRMACAO_HORA,
+                )
+
             scheduler.start()
             app.state.scheduler = scheduler
-            logger.info(
-                "Scheduler de lembrete de vacina ligado — executa diariamente às %02d:00 BRT",
-                settings.LUNA_SCHEDULER_HORA,
-            )
 
         yield
 

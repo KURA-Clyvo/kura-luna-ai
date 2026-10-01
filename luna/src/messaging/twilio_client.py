@@ -1,5 +1,6 @@
 """Twilio WhatsApp gateway — Protocol + implementação concreta."""
 import re
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from twilio.base.exceptions import TwilioRestException
@@ -62,12 +63,31 @@ class MessagingError(Exception):
         self.codigo = codigo
 
 
+@dataclass(frozen=True, slots=True)
+class StatusMensagem:
+    """Resultado de uma consulta de status de mensagem (REC-16, G0 item 10).
+
+    ``error_code`` só é preenchido quando `status` é um estado terminal de
+    falha (`failed`/`undelivered`) -- nunca carrega texto livre do Twilio
+    (LGPD/TASK-75, mesma disciplina do resto deste módulo).
+    """
+
+    status: str
+    error_code: int | None = None
+
+
 @runtime_checkable
 class ITwilioGateway(Protocol):
     """Interface de envio de mensagens WhatsApp."""
 
     def enviar_whatsapp(self, para: str, mensagem: str) -> str:
         """Envia mensagem e retorna o SID da mensagem criada."""
+        ...
+
+    def consultar_status(self, message_sid: str) -> StatusMensagem:
+        """Consulta o status atual de uma mensagem já enviada (REC-16, G0 item 10:
+        `201`/SID de criação não é entrega -- o status real precisa ser consultado
+        à parte antes de marcar um lembrete como enviado de verdade)."""
         ...
 
 
@@ -126,4 +146,24 @@ class TwilioGateway:
         except Exception as exc:
             raise MessagingError(
                 f"Falha ao enviar WhatsApp: {exc}", codigo=type(exc).__name__
+            ) from exc
+
+    def consultar_status(self, message_sid: str) -> StatusMensagem:
+        """Consulta `client.messages(sid).fetch()` e devolve status + código de erro.
+
+        Raises:
+            MessagingError: se a consulta ao Twilio falhar (REST error ou rede) --
+                mesma disciplina de LGPD de `enviar_whatsapp`: nunca ``exc.msg`` cru.
+        """
+        try:
+            mensagem = self._client.messages(message_sid).fetch()
+            return StatusMensagem(status=mensagem.status, error_code=mensagem.error_code)
+        except TwilioRestException as exc:
+            raise MessagingError(
+                f"Twilio REST error [{exc.code}] status={exc.status} uri={exc.uri}",
+                codigo=exc.code,
+            ) from None
+        except Exception as exc:
+            raise MessagingError(
+                f"Falha ao consultar status: {exc}", codigo=type(exc).__name__
             ) from exc

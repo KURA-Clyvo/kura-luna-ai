@@ -550,3 +550,273 @@ class TestRedeDeSeguranca:
         assert len(_RESPOSTA_BAIXA) < 1600
         assert len(_RESPOSTA_MEDIA) < 1600
         assert len(_RESPOSTA_FALLBACK) < 1600
+
+
+# ── REC-16 — interceptação de confirmação D-1 (A-10/a, G0 item 11) ─────────
+#
+# Testes isolados nesta seção porque exigem o 5º argumento opcional
+# (pendencia_store) que os fixtures `service`/`kura_client`/... acima não
+# passam (eles continuam cobrindo o comportamento pré-REC-16 sem o store,
+# provando que o parâmetro é opcional de verdade).
+
+from src.services.pendencia_confirmacao_store import (  # noqa: E402
+    PendenciaConfirmacao,
+    PendenciaConfirmacaoStore,
+)
+
+
+def _store_com_pendencia(
+    telefone: str = "5511999999999", id_agendamento: int = 10, id_tutor: int = 7
+) -> PendenciaConfirmacaoStore:
+    import datetime as dt
+
+    store = PendenciaConfirmacaoStore()
+    store.registrar(
+        telefone,
+        PendenciaConfirmacao(
+            id_agendamento=id_agendamento,
+            id_tutor=id_tutor,
+            expira_em=dt.datetime.now(tz=dt.UTC) + dt.timedelta(hours=1),
+        ),
+    )
+    return store
+
+
+@pytest.fixture
+def service_com_store(
+    kura_client: AsyncMock,
+    triage_engine: MagicMock,
+    twilio_gateway: MagicMock,
+    log_repo: MagicMock,
+) -> tuple[InboundMessageService, PendenciaConfirmacaoStore]:
+    store = _store_com_pendencia()
+    service = InboundMessageService(
+        kura_client, triage_engine, twilio_gateway, log_repo, pendencia_store=store
+    )
+    return service, store
+
+
+async def test_resposta_ambigua_com_pendencia_vai_para_triagem_e_recebe_emergencia(
+    service_com_store: tuple[InboundMessageService, PendenciaConfirmacaoStore],
+    kura_client: AsyncMock,
+    triage_engine: MagicMock,
+) -> None:
+    """Mordida do aceite literal: 'sim, mas ele está vomitando' de um telefone
+    COM lembrete pendente -- ambígua (A-10/a) -- vai para a triagem normal e
+    recebe a orientação de emergência adequada à urgência classificada. NÃO é
+    tratada como confirmação (nunca chama registrar_resposta_confirmacao)."""
+    service, store = service_com_store
+    kura_client.buscar_tutor_por_telefone.return_value = None
+    kura_client.registrar_interacao.return_value = 1
+    triage_result = MagicMock()
+    triage_result.urgencia = "MEDIA"
+    triage_result.sintomas_detectados = ["vômito"]
+    triage_result.score = 3
+    triage_result.regras_versao = "1.1"
+    triage_engine.classificar.return_value = triage_result
+
+    with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+        result = await service.processar(
+            _make_msg("sim, mas ele está vomitando", numero="5511999999999")
+        )
+
+    kura_client.registrar_resposta_confirmacao.assert_not_awaited()
+    assert result.resposta_enviada == _RESPOSTA_MEDIA
+    assert _ORIENTACAO_EMERGENCIA in result.resposta_enviada
+    # ambígua -- a pendência NÃO é removida (o tutor pode responder de novo)
+    assert store.buscar("5511999999999") is not None
+
+
+async def test_resposta_curta_sem_pendencia_vai_para_triagem_normal(
+    kura_client: AsyncMock,
+    triage_engine: MagicMock,
+    twilio_gateway: MagicMock,
+    log_repo: MagicMock,
+) -> None:
+    """Mordida do aceite literal: '1' de um telefone SEM lembrete pendente vai
+    para a triagem normal -- o store vazio nunca intercepta nada."""
+    store = PendenciaConfirmacaoStore()
+    service = InboundMessageService(
+        kura_client, triage_engine, twilio_gateway, log_repo, pendencia_store=store
+    )
+    kura_client.buscar_tutor_por_telefone.return_value = None
+    kura_client.registrar_interacao.return_value = 2
+    triage_result = MagicMock()
+    triage_result.urgencia = "BAIXA"
+    triage_result.sintomas_detectados = []
+    triage_result.score = 0
+    triage_result.regras_versao = "1.1"
+    triage_engine.classificar.return_value = triage_result
+
+    with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+        result = await service.processar(_make_msg("1", numero="5511888888888"))
+
+    kura_client.registrar_resposta_confirmacao.assert_not_awaited()
+    triage_engine.classificar.assert_called_once_with("1")
+    assert result.resposta_enviada == _RESPOSTA_BAIXA
+
+
+async def test_resposta_sim_reconhecida_confirma_e_nao_passa_pela_triagem(
+    service_com_store: tuple[InboundMessageService, PendenciaConfirmacaoStore],
+    kura_client: AsyncMock,
+    triage_engine: MagicMock,
+) -> None:
+    service, store = service_com_store
+    kura_client.registrar_resposta_confirmacao.return_value = MagicMock(
+        id_agendamento=10, ds_status="CONFIRMADO", ds_resposta_confirmacao="SIM"
+    )
+
+    with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+        result = await service.processar(_make_msg("1", numero="5511999999999"))
+
+    kura_client.registrar_resposta_confirmacao.assert_awaited_once_with(
+        id_agendamento=10, id_tutor=7, resposta="SIM"
+    )
+    triage_engine.classificar.assert_not_called()
+    assert store.buscar("5511999999999") is None  # pendência consumida
+    assert "confirmada" in result.resposta_enviada.lower()
+
+
+async def test_resposta_cancelar_reconhecida_remove_pendencia(
+    service_com_store: tuple[InboundMessageService, PendenciaConfirmacaoStore],
+    kura_client: AsyncMock,
+    triage_engine: MagicMock,
+) -> None:
+    service, store = service_com_store
+    kura_client.registrar_resposta_confirmacao.return_value = MagicMock(
+        id_agendamento=10, ds_status="CANCELADO", ds_resposta_confirmacao="CANCELAR"
+    )
+
+    with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+        result = await service.processar(_make_msg("cancelar", numero="5511999999999"))
+
+    kura_client.registrar_resposta_confirmacao.assert_awaited_once_with(
+        id_agendamento=10, id_tutor=7, resposta="CANCELAR"
+    )
+    triage_engine.classificar.assert_not_called()
+    assert store.buscar("5511999999999") is None
+    assert "cancelado" in result.resposta_enviada.lower()
+
+
+async def test_falha_ao_registrar_resposta_remove_pendencia_e_responde_generico(
+    service_com_store: tuple[InboundMessageService, PendenciaConfirmacaoStore],
+    kura_client: AsyncMock,
+    log_repo: MagicMock,
+) -> None:
+    """Resposta RECONHECIDA mas o .NET rejeita (ex.: 422 -- status mudou) --
+    não trava o tutor num loop: remove a pendência e responde com mensagem
+    genérica, nunca o motivo técnico."""
+    service, store = service_com_store
+    kura_client.registrar_resposta_confirmacao.side_effect = RuntimeError("422 rejeitado")
+
+    with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+        result = await service.processar(_make_msg("sim", numero="5511999999999"))
+
+    assert store.buscar("5511999999999") is None
+    log_repo.registrar.assert_called_once()
+    assert "não conseguimos" in result.resposta_enviada.lower()
+
+
+# ── G2 achado B — _tentar_confirmacao_d1 não pode escapar de processar() ───
+
+async def test_falha_ao_enviar_confirmacao_de_sucesso_nao_escapa_e_vai_para_log_erro(
+    service_com_store: tuple[InboundMessageService, PendenciaConfirmacaoStore],
+    kura_client: AsyncMock,
+    log_repo: MagicMock,
+) -> None:
+    """G2 achado B (Important): tutor manda 'sim' -> o `.NET` processa com
+    sucesso (ex.: CONFIRMADO) -> o envio da mensagem de confirmação AO TUTOR
+    falha (MessagingError, ex.: 63016). Antes do fix, essa exceção escapava de
+    `processar()` sem log nem LOG_ERRO (achado B da G2, com controle
+    positivo: o mesmo erro no fluxo normal é absorvido). Depois do fix, nunca
+    propaga, e a pendência PERMANECE removida -- a ação já foi aplicada no
+    `.NET`, só o aviso ao tutor falhou."""
+    service, store = service_com_store
+    kura_client.registrar_resposta_confirmacao.return_value = MagicMock(
+        id_agendamento=10, ds_status="CONFIRMADO", ds_resposta_confirmacao="SIM"
+    )
+
+    from src.messaging.twilio_client import MessagingError
+
+    with patch(
+        "src.services.inbound_message_service.asyncio.to_thread",
+        new=AsyncMock(side_effect=MessagingError("boom", codigo=63016)),
+    ):
+        result = await service.processar(_make_msg("sim", numero="5511999999999"))
+
+    # não levantou -- se chegou aqui, já não escapou.
+    kura_client.registrar_resposta_confirmacao.assert_awaited_once()
+    log_repo.registrar.assert_called_once()
+    assert store.buscar("5511999999999") is None
+    assert result is not None
+
+
+async def test_falha_dupla_registrar_e_notificar_falha_nao_escapa(
+    service_com_store: tuple[InboundMessageService, PendenciaConfirmacaoStore],
+    kura_client: AsyncMock,
+    log_repo: MagicMock,
+) -> None:
+    """G2 achado B -- o OUTRO ramo: o `.NET` REJEITA a resposta (ex.: 422) E o
+    envio da mensagem de erro genérica também falha. As duas falhas são
+    logadas (uma pelo except interno de `_tentar_confirmacao_d1`, outra pelo
+    except externo de `processar`), e nada escapa."""
+    service, store = service_com_store
+    kura_client.registrar_resposta_confirmacao.side_effect = RuntimeError("422 rejeitado")
+
+    from src.messaging.twilio_client import MessagingError
+
+    with patch(
+        "src.services.inbound_message_service.asyncio.to_thread",
+        new=AsyncMock(side_effect=MessagingError("boom", codigo="30008")),
+    ):
+        result = await service.processar(_make_msg("sim", numero="5511999999999"))
+
+    assert result is not None
+    assert store.buscar("5511999999999") is None
+    assert log_repo.registrar.call_count >= 2
+
+
+# ── LGPD — telefone nunca cru em log nem em LOG_ERRO (REC-16) ──────────────
+
+async def test_falha_ao_registrar_resposta_nao_vaza_telefone_no_log(
+    kura_client: AsyncMock,
+    triage_engine: MagicMock,
+    twilio_gateway: MagicMock,
+    log_repo: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Controle positivo incluído: um `logger.warning` SIBLING que embute o
+    telefone de propósito (`_marcador_controle_positivo`, fora do código de
+    produção) prova que `caplog`/`log_repo.registrar` ENXERGARIAM o telefone
+    se ele vazasse -- sem esse controle, "telefone ausente" seria
+    indistinguível de "caplog não captura nada daqui"."""
+    numero = "5511977776666"
+    store = _store_com_pendencia(telefone=numero, id_agendamento=20, id_tutor=9)
+    service = InboundMessageService(
+        kura_client, triage_engine, twilio_gateway, log_repo, pendencia_store=store
+    )
+    kura_client.registrar_resposta_confirmacao.side_effect = RuntimeError(
+        "falha simulada sem telefone"
+    )
+
+    with caplog.at_level("WARNING"):
+        # controle positivo: prova que caplog ENXERGARIA o número se um
+        # chamador (presente ou futuro) o embutisse num log -- sem isto, um
+        # `assert numero not in caplog.text` que desse certo por caplog estar
+        # vazio por outro motivo passaria despercebido.
+        logging.getLogger("tests.controle_positivo_rec16").warning(
+            "sonda de controle positivo com telefone %s", numero
+        )
+        assert numero in caplog.text, "controle positivo falhou -- caplog não captura texto"
+        caplog.clear()
+
+        with patch("src.services.inbound_message_service.asyncio.to_thread", new=AsyncMock()):
+            await service.processar(_make_msg("cancelar", numero=numero))
+
+    assert numero not in caplog.text, f"telefone vazou no log: {caplog.text!r}"
+    for chamada in log_repo.registrar.call_args_list:
+        _, kwargs = chamada
+        texto_registrado = str(kwargs)
+        assert numero not in texto_registrado, (
+            f"telefone vazou em LOG_ERRO: {texto_registrado!r}"
+        )

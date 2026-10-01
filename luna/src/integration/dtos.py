@@ -71,3 +71,42 @@ class TriageResponseDTO(BaseModel):
     """Resposta ao registrar triagem."""
 
     id_triagem: int
+
+
+class ConfirmacaoPendenteItemDTO(BaseModel):
+    """Item de GET /api/v1/luna/agendamentos/confirmacao-pendente (REC-16/REC-15).
+
+    Espelha `ConfirmacaoPendenteItemDto.cs` — shape snake_case via `[JsonPropertyName]`
+    explícito do lado .NET, confirmado por leitura da fonte antes de montar este DTO.
+    """
+
+    id_agendamento: int
+    id_clinica: int
+    id_tutor: int
+    ds_whatsapp: str
+    nm_tutor: str
+    nm_pet: str | None = None
+    dt_agendamento: datetime
+    ds_servico: str | None = None
+
+
+class LembreteEnviadoResponseDTO(BaseModel):
+    """Resposta de POST .../lembrete-enviado (REC-16/REC-15)."""
+
+    id_agendamento: int
+    dt_lembrete_confirmacao: datetime
+
+
+class RespostaConfirmacaoRequestDTO(BaseModel):
+    """Payload de POST .../resposta-confirmacao (REC-16/REC-15)."""
+
+    id_tutor: int
+    resposta: Literal["SIM", "CANCELAR", "REMARCAR"]
+
+
+class RespostaConfirmacaoResponseDTO(BaseModel):
+    """Resposta de POST .../resposta-confirmacao (REC-16/REC-15)."""
+
+    id_agendamento: int
+    ds_status: str
+    ds_resposta_confirmacao: str | None = None

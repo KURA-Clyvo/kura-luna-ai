@@ -1,4 +1,39 @@
 """Templates de mensagem parametrizados para a Luna."""
+from datetime import datetime
+
+
+def confirmacao_d1(
+    nm_tutor: str,
+    nm_pet: str | None,
+    dt_agendamento: datetime,
+    ds_servico: str | None,
+) -> str:
+    """Template do lembrete de confirmação D-1 (REC-16, A-10).
+
+    Texto livre (não é template aprovado da Meta/WhatsApp Business — mesmo
+    padrão do `lembrete_vacina` abaixo, mesmo risco documentado no G0 item 10
+    do backlog: fora da janela de 24h desde a última mensagem do tutor, o
+    envio pode falhar com 63016. Risco operacional conhecido, não bloqueante).
+
+    As 3 opções numéricas casam exatamente com
+    `confirmacao_d1_reconhecedor.reconhecer_resposta_confirmacao` (A-10/a).
+    `nm_clinica` não está disponível aqui — `ConfirmacaoPendenteItemDto` (REC-15)
+    não carrega o nome da clínica, só o id (ver `dtos.ConfirmacaoPendenteItemDTO`)
+    — por isso o texto não cita o nome da clínica.
+    """
+    hora = dt_agendamento.strftime("%H:%M")
+    pet_trecho = f" do(a) {nm_pet}" if nm_pet else ""
+    servico_trecho = f" ({ds_servico})" if ds_servico else ""
+
+    return (
+        f"Olá, {nm_tutor}! 🐾\n\n"
+        f"Você tem um agendamento{pet_trecho} amanhã às {hora}{servico_trecho}.\n\n"
+        "Por favor, responda com uma das opções:\n"
+        "1 — Confirmar presença\n"
+        "2 — Cancelar\n"
+        "3 — Preciso remarcar\n\n"
+        "Você também pode responder só com a palavra: sim, cancelar ou remarcar."
+    )
 
 
 def lembrete_vacina(

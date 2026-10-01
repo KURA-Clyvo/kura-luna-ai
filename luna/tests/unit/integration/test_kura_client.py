@@ -1,7 +1,7 @@
 """Tests for KuraClient using respx to mock httpx."""
 import logging
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -32,7 +32,7 @@ def _interaction_dto() -> InteractionRequestDTO:
         ds_canal="WHATSAPP",
         ds_direcao="INBOUND",
         ds_conteudo="meu pet está doente",
-        dt_recebimento=datetime.now(tz=timezone.utc),
+        dt_recebimento=datetime.now(tz=UTC),
     )
 
 
@@ -382,3 +382,153 @@ async def test_verificar_saude_false_em_erro(client: KuraClient) -> None:
 async def test_verificar_saude_false_em_503(client: KuraClient) -> None:
     respx.get(f"{BASE}/health").mock(return_value=httpx.Response(503))
     assert await client.verificar_saude() is False
+
+
+# ── buscar_confirmacao_pendente / marcar_lembrete_enviado /
+#    registrar_resposta_confirmacao (REC-16) ─────────────────────────────────
+
+@respx.mock
+async def test_buscar_confirmacao_pendente_200(client: KuraClient) -> None:
+    respx.get(f"{BASE}/api/v1/luna/agendamentos/confirmacao-pendente").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "id_agendamento": 10,
+                    "id_clinica": 1,
+                    "id_tutor": 7,
+                    "ds_whatsapp": "+5511999999999",
+                    "nm_tutor": "João",
+                    "nm_pet": "Rex",
+                    "dt_agendamento": "2026-10-02T14:30:00",
+                    "ds_servico": "Consulta",
+                }
+            ],
+        )
+    )
+    import datetime as dt
+
+    candidatos = await client.buscar_confirmacao_pendente(dt.date(2026, 10, 2))
+    assert len(candidatos) == 1
+    assert candidatos[0].id_agendamento == 10
+    assert candidatos[0].ds_whatsapp == "+5511999999999"
+
+
+@respx.mock
+async def test_buscar_confirmacao_pendente_usa_prefixo_v1_e_query_data(
+    client: KuraClient,
+) -> None:
+    import datetime as dt
+
+    route = respx.get(
+        f"{BASE}/api/v1/luna/agendamentos/confirmacao-pendente",
+        params={"data": "2026-10-02"},
+    ).mock(return_value=httpx.Response(200, json=[]))
+    await client.buscar_confirmacao_pendente(dt.date(2026, 10, 2))
+    assert route.called
+    request = route.calls[0].request
+    assert request.headers["X-Api-Key"] == API_KEY
+
+
+@respx.mock
+async def test_buscar_confirmacao_pendente_500_levanta(client: KuraClient) -> None:
+    import datetime as dt
+
+    respx.get(f"{BASE}/api/v1/luna/agendamentos/confirmacao-pendente").mock(
+        return_value=httpx.Response(500, text="boom")
+    )
+    with pytest.raises(KuraApiError):
+        await client.buscar_confirmacao_pendente(dt.date(2026, 10, 2))
+
+
+@respx.mock
+async def test_buscar_confirmacao_pendente_timeout(client: KuraClient) -> None:
+    import datetime as dt
+
+    respx.get(f"{BASE}/api/v1/luna/agendamentos/confirmacao-pendente").mock(
+        side_effect=httpx.TimeoutException("timeout")
+    )
+    with pytest.raises(KuraTimeoutError):
+        await client.buscar_confirmacao_pendente(dt.date(2026, 10, 2))
+
+
+@respx.mock
+async def test_marcar_lembrete_enviado_200(client: KuraClient) -> None:
+    respx.post(f"{BASE}/api/v1/luna/agendamentos/10/lembrete-enviado").mock(
+        return_value=httpx.Response(
+            200,
+            json={"id_agendamento": 10, "dt_lembrete_confirmacao": "2026-10-01T09:00:00"},
+        )
+    )
+    result = await client.marcar_lembrete_enviado(10)
+    assert result.id_agendamento == 10
+
+
+@respx.mock
+async def test_marcar_lembrete_enviado_404_levanta(client: KuraClient) -> None:
+    respx.post(f"{BASE}/api/v1/luna/agendamentos/999/lembrete-enviado").mock(
+        return_value=httpx.Response(404, json={"title": "not found"})
+    )
+    with pytest.raises(KuraApiError) as exc_info:
+        await client.marcar_lembrete_enviado(999)
+    assert exc_info.value.status_code == 404
+
+
+@respx.mock
+async def test_registrar_resposta_confirmacao_200(client: KuraClient) -> None:
+    respx.post(f"{BASE}/api/v1/luna/agendamentos/10/resposta-confirmacao").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id_agendamento": 10,
+                "ds_status": "CONFIRMADO",
+                "ds_resposta_confirmacao": "SIM",
+            },
+        )
+    )
+    result = await client.registrar_resposta_confirmacao(
+        id_agendamento=10, id_tutor=7, resposta="SIM"
+    )
+    assert result.ds_status == "CONFIRMADO"
+
+
+@respx.mock
+async def test_registrar_resposta_confirmacao_envia_corpo_sem_telefone(
+    client: KuraClient,
+) -> None:
+    route = respx.post(f"{BASE}/api/v1/luna/agendamentos/10/resposta-confirmacao").mock(
+        return_value=httpx.Response(
+            200,
+            json={"id_agendamento": 10, "ds_status": "CANCELADO", "ds_resposta_confirmacao": "CANCELAR"},
+        )
+    )
+    await client.registrar_resposta_confirmacao(id_agendamento=10, id_tutor=7, resposta="CANCELAR")
+    corpo = route.calls[0].request.content.decode()
+    assert "id_tutor" in corpo and "7" in corpo
+    assert "whatsapp" not in corpo.lower()
+
+
+@respx.mock
+async def test_registrar_resposta_confirmacao_422_levanta_sem_vazar_corpo(
+    client: KuraClient,
+) -> None:
+    """422 é o caminho real de "tutor não corresponde ao agendamento" (G0 item
+    11, LunaService.cs) -- garante que o corpo de erro (sem PII, só ids) segue
+    disponível para quem tratar o erro a jusante, via KuraApiError."""
+    respx.post(f"{BASE}/api/v1/luna/agendamentos/10/resposta-confirmacao").mock(
+        return_value=httpx.Response(
+            422, json={"title": "O tutor informado não corresponde ao tutor do agendamento 10."}
+        )
+    )
+    with pytest.raises(KuraApiError) as exc_info:
+        await client.registrar_resposta_confirmacao(id_agendamento=10, id_tutor=99, resposta="SIM")
+    assert exc_info.value.status_code == 422
+
+
+@respx.mock
+async def test_registrar_resposta_confirmacao_timeout(client: KuraClient) -> None:
+    respx.post(f"{BASE}/api/v1/luna/agendamentos/10/resposta-confirmacao").mock(
+        side_effect=httpx.TimeoutException("timeout")
+    )
+    with pytest.raises(KuraTimeoutError):
+        await client.registrar_resposta_confirmacao(id_agendamento=10, id_tutor=7, resposta="SIM")
