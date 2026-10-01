@@ -576,7 +576,7 @@ def _store_com_pendencia(
         PendenciaConfirmacao(
             id_agendamento=id_agendamento,
             id_tutor=id_tutor,
-            expira_em=dt.datetime.now(tz=dt.timezone.utc) + dt.timedelta(hours=1),
+            expira_em=dt.datetime.now(tz=dt.UTC) + dt.timedelta(hours=1),
         ),
     )
     return store
@@ -674,6 +674,7 @@ async def test_resposta_sim_reconhecida_confirma_e_nao_passa_pela_triagem(
     )
     triage_engine.classificar.assert_not_called()
     assert store.buscar("5511999999999") is None  # pendência consumida
+    assert "confirmada" in result.resposta_enviada.lower()
 
 
 async def test_resposta_cancelar_reconhecida_remove_pendencia(

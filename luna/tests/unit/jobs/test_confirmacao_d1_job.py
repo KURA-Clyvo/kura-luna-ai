@@ -67,12 +67,11 @@ async def test_tick_ignora_sem_derrubar_processo_quando_twilio_exception(
 ) -> None:
     app = _fake_app()
 
-    with caplog.at_level("WARNING"):
-        with patch(
-            "src.jobs.confirmacao_d1_job.criar_confirmacao_d1_service",
-            side_effect=TwilioException("Credentials are required to create a TwilioClient"),
-        ):
-            await executar_tick_confirmacao_d1(app)  # type: ignore[arg-type]
+    with caplog.at_level("WARNING"), patch(
+        "src.jobs.confirmacao_d1_job.criar_confirmacao_d1_service",
+        side_effect=TwilioException("Credentials are required to create a TwilioClient"),
+    ):
+        await executar_tick_confirmacao_d1(app)  # type: ignore[arg-type]
 
     assert "credencial Twilio ausente/inválida" in caplog.text
     assert "Credentials are required" not in caplog.text

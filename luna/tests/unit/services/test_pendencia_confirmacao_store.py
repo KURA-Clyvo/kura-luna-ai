@@ -1,5 +1,5 @@
 """Testes do PendenciaConfirmacaoStore (REC-16, G0 item 11)."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from src.services.pendencia_confirmacao_store import (
     PendenciaConfirmacao,
@@ -11,7 +11,7 @@ def _pendencia(id_agendamento: int = 1, id_tutor: int = 7, horas_validade: int =
     return PendenciaConfirmacao(
         id_agendamento=id_agendamento,
         id_tutor=id_tutor,
-        expira_em=datetime.now(tz=timezone.utc) + timedelta(hours=horas_validade),
+        expira_em=datetime.now(tz=UTC) + timedelta(hours=horas_validade),
     )
 
 

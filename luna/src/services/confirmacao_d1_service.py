@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.db.repositories.log_erro_repo import LogErroRepository
@@ -177,7 +177,7 @@ class ConfirmacaoD1Service:
             PendenciaConfirmacao(
                 id_agendamento=candidato.id_agendamento,
                 id_tutor=candidato.id_tutor,
-                expira_em=datetime.now(tz=timezone.utc) + timedelta(hours=_VALIDADE_PENDENCIA_HORAS),
+                expira_em=datetime.now(tz=UTC) + timedelta(hours=_VALIDADE_PENDENCIA_HORAS),
             ),
         )
 

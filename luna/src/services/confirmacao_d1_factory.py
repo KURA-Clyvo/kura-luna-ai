@@ -30,8 +30,8 @@ if TYPE_CHECKING:
 
 
 def criar_confirmacao_d1_service(
-    settings: "Settings",
-    pool: "OracleConnectionPool",
+    settings: Settings,
+    pool: OracleConnectionPool,
     http_client: httpx.AsyncClient,
     store: PendenciaConfirmacaoStore,
 ) -> ConfirmacaoD1Service:

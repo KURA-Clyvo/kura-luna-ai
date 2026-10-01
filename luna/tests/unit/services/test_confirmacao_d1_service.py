@@ -1,5 +1,5 @@
 """Testes do ConfirmacaoD1Service (REC-16)."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,7 +23,7 @@ def _candidato(
         ds_whatsapp=ds_whatsapp,
         nm_tutor="João",
         nm_pet="Rex",
-        dt_agendamento=datetime(2026, 10, 2, 14, 30, tzinfo=timezone.utc),
+        dt_agendamento=datetime(2026, 10, 2, 14, 30, tzinfo=UTC),
         ds_servico="Consulta",
     )
 
@@ -125,9 +125,8 @@ async def test_status_failed_nao_marca_enviado_e_nao_vaza_telefone_no_log(
         status="failed", error_code=63016
     )
 
-    with _sem_sleep():
-        with caplog.at_level("WARNING"):
-            resumo = await service.executar()
+    with _sem_sleep(), caplog.at_level("WARNING"):
+        resumo = await service.executar()
 
     assert resumo.falhas == 1
     kura_client.marcar_lembrete_enviado.assert_not_awaited()

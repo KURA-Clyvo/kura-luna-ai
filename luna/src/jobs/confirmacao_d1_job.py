@@ -42,7 +42,7 @@ class ConfirmacaoD1Job:
         return resumo
 
 
-async def executar_tick_confirmacao_d1(app: "FastAPI") -> None:
+async def executar_tick_confirmacao_d1(app: FastAPI) -> None:
     """Tick do `AsyncIOScheduler` (REC-16) — chamado pelo cron diário do `lifespan`.
 
     Nunca deixa uma falha derrubar o scheduler nem o processo: cada

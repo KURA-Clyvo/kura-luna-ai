@@ -1,7 +1,7 @@
 """Tests for KuraClient using respx to mock httpx."""
 import logging
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -32,7 +32,7 @@ def _interaction_dto() -> InteractionRequestDTO:
         ds_canal="WHATSAPP",
         ds_direcao="INBOUND",
         ds_conteudo="meu pet está doente",
-        dt_recebimento=datetime.now(tz=timezone.utc),
+        dt_recebimento=datetime.now(tz=UTC),
     )
 
 

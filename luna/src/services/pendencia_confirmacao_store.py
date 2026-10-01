@@ -29,7 +29,7 @@ do Twilio).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +66,7 @@ class PendenciaConfirmacaoStore:
         pendencia = self._por_telefone.get(telefone)
         if pendencia is None:
             return None
-        if pendencia.expira_em <= datetime.now(tz=timezone.utc):
+        if pendencia.expira_em <= datetime.now(tz=UTC):
             del self._por_telefone[telefone]
             return None
         return pendencia
@@ -86,7 +86,7 @@ class PendenciaConfirmacaoStore:
         `DT_LEMBRETE_CONFIRMACAO IS NULL` do lado `.NET` — isto é só a segunda
         linha de defesa, local ao processo.
         """
-        agora = datetime.now(tz=timezone.utc)
+        agora = datetime.now(tz=UTC)
         return any(
             p.id_agendamento == id_agendamento and p.expira_em > agora
             for p in self._por_telefone.values()
