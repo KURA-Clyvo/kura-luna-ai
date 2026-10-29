@@ -150,7 +150,7 @@ numa decisão clínica*.
 É o coração da entrega. Recebe o texto livre que o tutor escreveu no WhatsApp e devolve
 uma classificação de urgência com rastro completo.
 
-**Base de conhecimento versionada** (`TRIAGE_RULES_VERSION` — hoje **`"1.3"`**, medido em
+**Base de conhecimento versionada** (`TRIAGE_RULES_VERSION` — hoje **`"1.4"`**, medido em
 `src/ai/triage_rules.py:3`; o `1.0` de versões antigas deste documento envelheceu, ver §9.5
 para a avaliação da versão atual) — **11 categorias clínicas** distribuídas em três níveis:
 
@@ -613,12 +613,12 @@ sua fix wave 1 — **não é de veterinário nem de tutor real**, ver `tests/fix
 
 ```
 $ cd luna && PYTHONPATH=. python scripts/avaliar_triagem.py
-### Avaliação — 1.3 (TRIAGE_RULES_VERSION = "1.3")
-Corpus: 147 mensagens · Acurácia: 99,3% (146/147)
-Subtriagem de ALTA: 0,0% (0/74) · Supertriagem: 1,4% (1/73)
+### Avaliação — 1.4 (`TRIAGE_RULES_VERSION = "1.4"`)
+Corpus: 150 mensagens · Acurácia: 99,3% (149/150)
+Subtriagem de ALTA: 0,0% (0/77)
 EXIT=0
 ```
-(reexecutado para escrever este documento, saída idêntica à do script)
+(reexecutado em 29/10/2026 na v1.4; saída do script. Antes, na v1.3: 147 mensagens, 146/147, 0/74.)
 
 **Conjunto cego, independente** (61 mensagens, escritas por um revisor que **não tinha visto**
 `triage_rules.py`/`triage_engine.py` antes de escrevê-las — commit `fc18620`, feito **antes**
@@ -626,13 +626,13 @@ de abrir qualquer arquivo do motor. Fonte:
 `.superpowers/sdd/KURA_BACKLOG_LUNA_AI/lu-07-revisao.md`, seção "Re-G2 (Opus, sessão 7,
 2026-09-15) — conjunto cego NOVO"):
 
-| Métrica (61 msgs do cego, 35 rotuladas ALTA = 27 dentro das categorias do motor + 8 fora) | v1.0 (`e67137a`) | v1.3, mesclada em `main` (`975f29b`) |
-|---|---|---|
-| Subtriagem ALTA — dentro das categorias | 25/27 | 25/27 |
-| Subtriagem ALTA — fora das categorias | 8/8 | 8/8 |
+| Métrica (61 msgs do cego, 35 rotuladas ALTA = 27 dentro das categorias do motor + 8 fora) | v1.0 (`e67137a`) | v1.3, mesclada em `main` (`975f29b`) | v1.4 (`e011335`, remedido em 29/10/2026) |
+|---|---|---|---|
+| Subtriagem ALTA — dentro das categorias | 25/27 | 25/27 | 25/27 |
+| Subtriagem ALTA — fora das categorias | 8/8 | 8/8 | 8/8 |
 
-⇒ **2 de 35 mensagens ALTA reconhecidas pelo vocabulário — idênticas, bit a bit, entre as duas
-versões do motor.** Duas fix waves de vocabulário produziram ganho zero fora das frases escritas
+⇒ **2 de 35 mensagens ALTA reconhecidas pelo vocabulário — idênticas entre as três
+versões do motor (v1.0, v1.3 e v1.4; as mesmas duas, D11 `raticida` e D23 `sangue`).** Duas fix waves de vocabulário produziram ganho zero fora das frases escritas
 pelo próprio time — é a 3ª medição seguida, por instrumento diferente, dizendo a mesma coisa
 (G2 original, sonda do maestro, re-G2).
 
