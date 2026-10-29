@@ -58,7 +58,9 @@ Como reproduzir (de dentro de `luna/`):
 PYTHONPATH=. python scripts/avaliar_triagem.py
 
 # Testes sem visão computacional (sem torch): ignora os 4 arquivos que importam torch/ultralytics
-PYTHONPATH=. python -m pytest tests/unit -q \n  --ignore=tests/unit/ai/test_breed_classifier.py --ignore=tests/unit/ai/test_breed_detector.py \n  --ignore=tests/unit/cli/test_main.py --ignore=tests/unit/services/test_breed_service.py
+PYTHONPATH=. python -m pytest tests/unit -q \
+  --ignore=tests/unit/ai/test_breed_classifier.py --ignore=tests/unit/ai/test_breed_detector.py \
+  --ignore=tests/unit/cli/test_main.py --ignore=tests/unit/services/test_breed_service.py
 ```
 
 O conjunto cego e o roteiro de medição estão em `luna/docs/IA_DEFINICAO.md` §9.5. O texto das 61 mensagens, a sonda que classifica cada uma e a medição da rede de segurança (132/132) ficam no repositório de planejamento do projeto, que não é público; as contagens acima vêm de lá. A medição das 61 mensagens nas regras v1.4 foi refeita em 29/10/2026 com o `TriageEngine` deste repositório.
